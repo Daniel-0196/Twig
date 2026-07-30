@@ -17,11 +17,28 @@ final class AppState {
     var widgetState: WidgetState = .collapsed
     var openMainWindow: (() -> Void)?
 
+    /// 枝干方向（用户可自定义，存 UserDefaults 键 twig.branchDirection）
+    var branchDirection: BranchDirection {
+        didSet { UserDefaults.standard.set(branchDirection.rawValue, forKey: "twig.branchDirection") }
+    }
+
+    /// BranchView 布局后回写，供窗口扩容器使用
+    var branchContentSize: CGSize = CGSize(width: 560, height: 360)
+
+    /// 枝干布局参数（全部可调——交互手感迭代就改这里）
+    var branchTuning: BranchTuning {
+        var tuning = BranchTuning()
+        tuning.direction = branchDirection
+        return tuning
+    }
+
     private var inboxWatcher: DispatchSourceFileSystemObject?
     private var snapshotTimer: Timer?
     private(set) var lastImportReport: ImportReport?
 
     init() {
+        let raw = UserDefaults.standard.string(forKey: "twig.branchDirection")
+        branchDirection = raw.flatMap { BranchDirection(rawValue: $0) } ?? .right
         do {
             container = try TwigStore.makeContainer()
         } catch {
@@ -63,6 +80,28 @@ final class AppState {
 
     func exportSnapshot() {
         try? SnapshotExporter.export(projects: taskStore.allProjects(), to: TwigPaths.snapshotURL)
+    }
+
+    /// 枝干节点上下拖动 = 调整该目标在项目内的排期：
+    /// 布局按 targetDate 排序，所以与拖动方向上的相邻目标交换 targetDate / sortOrder，
+    /// 松手后枝干顺序随之变化（nodeID 由 BranchLayout.stableID 派生，这里反查找回 goal）
+    func moveGoal(nodeID: UUID, verticalDelta: CGFloat) {
+        let steps = Int((verticalDelta / 64).rounded())   // 每 64pt 一格
+        guard steps != 0 else { return }
+        for project in taskStore.allProjects() {
+            let goals = project.goals.filter { !$0.isDone }
+                .sorted { ($0.targetDate ?? .distantFuture) < ($1.targetDate ?? .distantFuture) }
+            guard goals.count > 1,
+                  let index = goals.firstIndex(where: { BranchLayout.stableID(for: $0) == nodeID }) else { continue }
+            let newIndex = min(max(index + steps, 0), goals.count - 1)
+            guard newIndex != index else { return }
+            let dragged = goals[index]
+            let neighbor = goals[newIndex]
+            swap(&dragged.targetDate, &neighbor.targetDate)
+            swap(&dragged.sortOrder, &neighbor.sortOrder)
+            try? container.mainContext.save()
+            return
+        }
     }
 
     // MARK: - 私有

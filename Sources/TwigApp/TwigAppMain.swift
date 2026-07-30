@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import TwigCore
 import UserNotifications
 
 @main
@@ -18,14 +19,24 @@ struct TwigAppMain: App {
         _appState = State(initialValue: state)
         _widgetController = State(initialValue: controller)
         state.start()
-        controller.show(rootView: WidgetView(appState: state))
+        controller.show(rootView: WidgetView(appState: state, controller: controller))
     }
 
     var body: some Scene {
         Window("Twig", id: "main") {
-            Text("主窗口（Task 11 实现）")
-                .frame(minWidth: 720, minHeight: 480)
-                .onAppear { NSApp.activate() }
+            VStack(alignment: .leading, spacing: 16) {
+                Text("主窗口（Task 11 实现）")
+                Picker("枝干方向", selection: directionBinding) {
+                    Text("向右").tag(BranchDirection.right)
+                    Text("向左").tag(BranchDirection.left)
+                    Text("向下").tag(BranchDirection.down)
+                    Text("向上").tag(BranchDirection.up)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 360)
+            }
+            .frame(minWidth: 720, minHeight: 480)
+            .onAppear { NSApp.activate() }
         }
         .defaultLaunchBehavior(.suppressed)
 
@@ -39,6 +50,13 @@ struct TwigAppMain: App {
     }
 
     @Environment(\.openWindow) private var openWindow
+
+    private var directionBinding: Binding<BranchDirection> {
+        Binding(
+            get: { appState.branchDirection },
+            set: { appState.branchDirection = $0 }
+        )
+    }
 
     private func openMain() {
         openWindow(id: "main")
