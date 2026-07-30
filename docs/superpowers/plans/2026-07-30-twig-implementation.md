@@ -2455,17 +2455,19 @@ git commit -m "feat: App 骨架 + 悬浮毛玻璃横条（NSPanel 非激活置�
 - Create: `Sources/TwigApp/Widget/BranchView.swift`
 - Create: `Sources/TwigApp/Widget/PeekListView.swift`
 - Modify: `Sources/TwigApp/Widget/WidgetView.swift`
+- Modify: `Sources/TwigApp/Widget/CollapsedBarView.swift`（虚线外延方向化）
 - Test: `Tests/TwigCoreTests/BranchLayoutTests.swift`
 
 **Interfaces:**
 - Consumes: `Project/Goal/Task`（Task 1）、`TaskStore`（Task 2）、`AppState`、`WidgetState`（Task 9）
 - Produces：
-  - `struct BranchTuning: Equatable`（`curveTension=0.35`、`branchSpacingX=150`、`nodeSpacingY=64`、`fadeDistance=320`、`dragExpandThreshold=24`，全部可调——交互手感迭代就改这里）
+  - `enum BranchDirection: String, Codable, CaseIterable { case right, left, up, down }`（**用户变更 2026-07-30：枝干方向可自定义**，Persist 于 UserDefaults 键 `twig.branchDirection`，默认 `.right`）
+  - `struct BranchTuning: Equatable`（`direction: BranchDirection = .right`、`curveTension=0.35`、`branchSpacing=150`、`nodeSpacing=64`、`fadeDistance=320`、`dragExpandThreshold=24`，全部可调——交互手感迭代就改这里）
   - `struct BranchNode: Identifiable, Equatable`（`id: UUID`、`title`、`subtitle`、`colorHex`、`center: CGPoint`、`opacity: Double`、`dashed: Bool`）
   - `struct BranchEdge: Equatable`（`from/to/c1/c2: CGPoint`、`colorHex`、`dashed`、`faded: Bool`）
-  - `struct BranchLayoutResult: Equatable`（`nodes: [BranchNode]`、`edges: [BranchEdge]`、`contentSize: CGSize`）
+  - `struct BranchLayoutResult: Equatable`（`nodes: [BranchNode]`、`edges: [BranchEdge]`、`contentSize: CGSize`、`direction: BranchDirection`）
   - `enum BranchLayout { static func compute(projects: [Project], anchor: CGPoint, tuning: BranchTuning = .init(), now: Date = .now) -> BranchLayoutResult }`
-  - 布局规则：每个项目一条枝干，从 anchor 出发向右扇开；项目 i 的节点列在 `x = anchor.x + branchSpacingX * (i+1)`；节点按 targetDate（空则最大）升序排 y；`opacity = max(0.3, 1 - 横向距离/fadeDistance)`；`dashed = (horizon != .short)`；边为贝塞尔（control 点按 curveTension 沿 x 外推）
+  - 布局规则：每个项目一条枝干，从 anchor 出发沿 **主轴**（direction 决定：right=+x、left=−x、down=+y、up=−y）扇开；项目 i 的节点列沿主轴偏移 `branchSpacing * (i+1)`；同项目节点沿**交叉轴**按 targetDate（空则最大）升序错开 `nodeSpacing`；`opacity = max(0.3, 1 - 主轴距离/fadeDistance)`；`dashed = (horizon != .short)`；边为贝塞尔（control 点按 curveTension 沿主轴外推）；`contentSize` 覆盖从 anchor 到最远节点的包围盒（含节点块留白 120/96）
 
 - [ ] **Step 1: 写布局失败测试**
 
@@ -2528,6 +2530,28 @@ final class BranchLayoutTests: XCTestCase {
             XCTAssertTrue(result.nodes.contains { $0.center == edge.to } || edge.to == anchor)
         }
     }
+
+    func testDirectionChangesMainAxis() {
+        let anchor = CGPoint(x: 400, y: 300)
+        var tuning = BranchTuning()
+
+        tuning.direction = .right
+        let right = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
+        XCTAssertTrue(right.nodes.allSatisfy { $0.center.x > anchor.x })
+
+        tuning.direction = .left
+        let left = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
+        XCTAssertTrue(left.nodes.allSatisfy { $0.center.x < anchor.x })
+
+        tuning.direction = .down
+        let down = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
+        XCTAssertTrue(down.nodes.allSatisfy { $0.center.y > anchor.y })
+        XCTAssertGreaterThan(down.contentSize.height, down.contentSize.width - 400)  // 纵向布局更高
+
+        tuning.direction = .up
+        let up = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
+        XCTAssertTrue(up.nodes.allSatisfy { $0.center.y < anchor.y })
+    }
 }
 ```
 
@@ -2544,10 +2568,15 @@ Expected: FAIL — 找不到 `BranchLayout`
 import CoreGraphics
 import Foundation
 
+public enum BranchDirection: String, Codable, CaseIterable {
+    case right, left, up, down
+}
+
 public struct BranchTuning: Equatable {
+    public var direction: BranchDirection = .right
     public var curveTension: CGFloat = 0.35
-    public var branchSpacingX: CGFloat = 150
-    public var nodeSpacingY: CGFloat = 64
+    public var branchSpacing: CGFloat = 150
+    public var nodeSpacing: CGFloat = 64
     public var fadeDistance: CGFloat = 320
     public var dragExpandThreshold: CGFloat = 24
     public init() {}
@@ -2577,6 +2606,7 @@ public struct BranchLayoutResult: Equatable {
     public var nodes: [BranchNode]
     public var edges: [BranchEdge]
     public var contentSize: CGSize
+    public var direction: BranchDirection
 }
 
 public enum BranchLayout {
@@ -2587,25 +2617,38 @@ public enum BranchLayout {
         let dayFmt = DateFormatter()
         dayFmt.dateFormat = "M/d"
 
+        // 主轴单位向量（枝干延展方向）与交叉轴单位向量（节点错开方向）
+        let main: CGPoint
+        switch tuning.direction {
+        case .right: main = CGPoint(x: 1, y: 0)
+        case .left:  main = CGPoint(x: -1, y: 0)
+        case .down:  main = CGPoint(x: 0, y: 1)
+        case .up:    main = CGPoint(x: 0, y: -1)
+        }
+        let cross = CGPoint(x: -main.y, y: main.x)   // 主轴逆时针旋转 90°
+
+        func layoutPoint(main m: CGFloat, cross c: CGFloat) -> CGPoint {
+            CGPoint(x: anchor.x + main.x * m + cross.x * c,
+                    y: anchor.y + main.y * m + cross.y * c)
+        }
+
         for (projectIndex, project) in projects.enumerated() {
             let goals = project.goals
                 .filter { !$0.isDone }
                 .sorted { ($0.targetDate ?? .distantFuture) < ($1.targetDate ?? .distantFuture) }
             guard !goals.isEmpty else { continue }
-            let columnX = anchor.x + tuning.branchSpacingX * CGFloat(projectIndex + 1)
+            let mainOffset = tuning.branchSpacing * CGFloat(projectIndex + 1)
             var previousPoint = anchor
 
             for (goalIndex, goal) in goals.enumerated() {
-                let y = anchor.y - CGFloat(goalIndex) * tuning.nodeSpacingY - 48
-                let center = CGPoint(x: columnX, y: y)
-                let distance = columnX - anchor.x
-                let opacity = max(0.3, 1 - distance / tuning.fadeDistance)
+                // 交叉轴正方向错开：日期近的离 anchor 近
+                let center = layoutPoint(main: mainOffset,
+                                         cross: 48 + CGFloat(goalIndex) * tuning.nodeSpacing)
+                let opacity = max(0.3, 1 - mainOffset / tuning.fadeDistance)
                 let dashed = goal.horizon != .short
                 let subtitle = goal.targetDate.map { dayFmt.string(from: $0) } ?? "未定"
-
                 nodes.append(BranchNode(
-                    id: goal.persistentModelID.uriRepresentation().absoluteString.hashValue == 0
-                        ? UUID() : stableID(for: goal),
+                    id: stableID(for: goal),
                     title: goal.title,
                     subtitle: subtitle,
                     colorHex: project.colorHint,
@@ -2613,13 +2656,12 @@ public enum BranchLayout {
                     opacity: opacity,
                     dashed: dashed
                 ))
-
-                let dx = (center.x - previousPoint.x) * tuning.curveTension
+                let d = mainOffset * tuning.curveTension
                 edges.append(BranchEdge(
                     from: previousPoint,
                     to: center,
-                    c1: CGPoint(x: previousPoint.x + dx, y: previousPoint.y),
-                    c2: CGPoint(x: center.x - dx, y: center.y),
+                    c1: CGPoint(x: previousPoint.x + main.x * d, y: previousPoint.y + main.y * d),
+                    c2: CGPoint(x: center.x - main.x * d, y: center.y - main.y * d),
                     colorHex: project.colorHint,
                     dashed: dashed && goalIndex == goals.count - 1,
                     faded: opacity < 0.7
@@ -2628,14 +2670,23 @@ public enum BranchLayout {
             }
         }
 
-        let maxX = nodes.map(\.center.x).max() ?? anchor.x
-        let minY = nodes.map(\.center.y).min() ?? anchor.y
-        let maxY = nodes.map(\.center.y).max() ?? anchor.y
-        return BranchLayoutResult(
-            nodes: nodes,
-            edges: edges,
-            contentSize: CGSize(width: maxX + 120, height: max(anchor.y - minY, maxY - anchor.y) + 96)
+        // contentSize = 从 anchor 出发沿主轴/交叉轴的包围盒（含留白）
+        var maxMain: CGFloat = 0, minCross: CGFloat = 0, maxCross: CGFloat = 0
+        for node in nodes {
+            let dx = node.center.x - anchor.x
+            let dy = node.center.y - anchor.y
+            maxMain = max(maxMain, dx * main.x + dy * main.y)
+            let c = dx * cross.x + dy * cross.y
+            minCross = min(minCross, c)
+            maxCross = max(maxCross, c)
+        }
+        let crossSpan = maxCross - minCross
+        let size = CGSize(
+            width: abs(main.x) * (maxMain + 120) + abs(cross.x) * (crossSpan + 96),
+            height: abs(main.y) * (maxMain + 120) + abs(cross.y) * (crossSpan + 96)
         )
+        return BranchLayoutResult(nodes: nodes, edges: edges,
+                                  contentSize: size, direction: tuning.direction)
     }
 
     private static func stableID(for goal: Goal) -> UUID {
@@ -2667,47 +2718,67 @@ import TwigCore
 /// 枝干完全展开：贝塞尔枝干 + 圆润玻璃块节点；拖动节点改排期
 struct BranchView: View {
     let appState: AppState
-    var tuning = BranchTuning()
     @State private var draggingNodeID: UUID?
 
     var body: some View {
+        let tuning = appState.branchTuning
+        let anchor: CGPoint = switch tuning.direction {
+        case .right: CGPoint(x: 0, y: 32)
+        case .left:  CGPoint(x: 0, y: 32)          // 容器内坐标，布局向左延展
+        case .down:  CGPoint(x: 190, y: 0)         // 从横条中点向下
+        case .up:    CGPoint(x: 190, y: 0)
+        }
         let layout = BranchLayout.compute(
             projects: appState.taskStore.allProjects(),
-            anchor: CGPoint(x: 0, y: 32)
+            anchor: anchor,
+            tuning: tuning
         )
+        // 左/上方向时布局坐标为负向，整体平移进容器正坐标系
+        let tx: CGFloat = layout.direction == .left ? layout.contentSize.width : 0
+        let ty: CGFloat = layout.direction == .up ? layout.contentSize.height : 0
         ZStack(alignment: .topLeading) {
-            Canvas { ctx, _ in
-                for edge in layout.edges {
-                    var path = Path()
-                    path.move(to: edge.from)
-                    path.addCurve(to: edge.to, control1: edge.c1, control2: edge.c2)
-                    let color = Color(hex: edge.colorHex) ?? .gray
-                    ctx.stroke(
-                        path,
-                        with: .color(color.opacity(edge.faded ? 0.4 : 0.85)),
-                        style: StrokeStyle(
-                            lineWidth: edge.faded ? 1.5 : 2,
-                            lineCap: .round,
-                            dash: edge.dashed ? [4, 6] : []
+            Group {
+                Canvas { ctx, _ in
+                    for edge in layout.edges {
+                        var path = Path()
+                        path.move(to: edge.from)
+                        path.addCurve(to: edge.to, control1: edge.c1, control2: edge.c2)
+                        let color = Color(hex: edge.colorHex) ?? .gray
+                        ctx.stroke(
+                            path,
+                            with: .color(color.opacity(edge.faded ? 0.4 : 0.85)),
+                            style: StrokeStyle(
+                                lineWidth: edge.faded ? 1.5 : 2,
+                                lineCap: .round,
+                                dash: edge.dashed ? [4, 6] : []
+                            )
                         )
-                    )
+                    }
+                }
+                ForEach(layout.nodes) { node in
+                    GoalNodeBlock(node: node)
+                        .position(node.center)
+                        .opacity(draggingNodeID == node.id ? 0.9 : node.opacity)
+                        .gesture(
+                            DragGesture()
+                                .onChanged { _ in draggingNodeID = node.id }
+                                .onEnded { value in
+                                    draggingNodeID = nil
+                                    appState.moveGoal(nodeID: node.id, verticalDelta: value.translation.height)
+                                }
+                        )
                 }
             }
-            ForEach(layout.nodes) { node in
-                GoalNodeBlock(node: node)
-                    .position(node.center)
-                    .opacity(draggingNodeID == node.id ? 0.9 : node.opacity)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { _ in draggingNodeID = node.id }
-                            .onEnded { value in
-                                draggingNodeID = nil
-                                appState.moveGoal(nodeID: node.id, verticalDelta: value.translation.height)
-                            }
-                    )
-            }
+            .offset(x: tx, y: ty)
         }
-        .frame(width: 560, height: max(layout.contentSize.height, 120))
+        .frame(
+            width: max(560, layout.contentSize.width),
+            height: max(layout.contentSize.height, 120)
+        )
+        .onChange(of: layout.contentSize) { _, size in
+            appState.branchContentSize = size
+        }
+        .onAppear { appState.branchContentSize = layout.contentSize }
         .background(
             Color.clear.contentShape(Rectangle()).onTapGesture {
                 appState.widgetState = .collapsed
@@ -2789,6 +2860,68 @@ struct PeekListView: View {
 }
 ```
 
+修改 `Sources/TwigApp/Widget/CollapsedBarView.swift`：把 Task 9 里固定向右的虚线 Canvas 抽成方向感知的 `DashedExtensionView`，并按枝干方向调整组装：
+
+```swift
+/// 横条末梢的虚线外延，方向跟随枝干方向
+struct DashedExtensionView: View {
+    let direction: BranchDirection
+
+    var body: some View {
+        Canvas { ctx, size in
+            let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+            let start: CGPoint = switch direction {
+            case .right: CGPoint(x: 8, y: mid.y)
+            case .left: CGPoint(x: size.width - 8, y: mid.y)
+            case .down, .up: mid
+            }
+            let ends: [CGPoint] = switch direction {
+            case .right: [CGPoint(x: size.width - 12, y: mid.y - 24), CGPoint(x: size.width - 12, y: mid.y + 24)]
+            case .left: [CGPoint(x: 12, y: mid.y - 24), CGPoint(x: 12, y: mid.y + 24)]
+            case .down: [CGPoint(x: mid.x - 60, y: size.height - 6), CGPoint(x: mid.x + 60, y: size.height - 6)]
+            case .up: [CGPoint(x: mid.x - 60, y: 6), CGPoint(x: mid.x + 60, y: 6)]
+            }
+            for end in ends {
+                var path = Path()
+                path.move(to: start)
+                path.addCurve(to: end,
+                              control1: CGPoint(x: (start.x + end.x) / 2, y: start.y),
+                              control2: CGPoint(x: (start.x + end.x) / 2, y: end.y))
+                ctx.stroke(path, with: .color(.primary.opacity(0.3)),
+                           style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 6]))
+            }
+        }
+    }
+}
+```
+
+CollapsedBarView 的 body 改为按方向组装（横条部分抽成 `bar` 计算属性，内容不变）：
+
+```swift
+    var body: some View {
+        let dashed = DashedExtensionView(direction: appState.branchTuning.direction)
+        Group {
+            switch appState.branchTuning.direction {
+            case .right:
+                HStack(spacing: 0) { bar; dashed.frame(width: 160) }
+            case .left:
+                HStack(spacing: 0) { dashed.frame(width: 160); bar }
+            case .down:
+                VStack(spacing: 0) { bar; dashed.frame(height: 48) }
+            case .up:
+                VStack(spacing: 0) { dashed.frame(height: 48); bar }
+            }
+        }
+        .frame(width: 560, height: barHeight)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering { appState.widgetState = .peeked }
+        }
+    }
+```
+
+`.up` 方向时悬浮窗整体需要向下锚定（扩高时往上长会顶出屏幕）——v1 处理：`WidgetWindowController.resize(toHeight:)` 已保持顶边不动向上增长，up 方向下用户在设置里选完后把横条拖到屏幕底部即可，交互迭代期再细化锚定。
+
 修改 `Sources/TwigApp/Widget/WidgetView.swift`，把 Task 9 的占位 peek 替换为真实三态，并让窗口高度随状态变化：
 
 ```swift
@@ -2819,7 +2952,13 @@ struct WidgetView: View {
                 switch state {
                 case .collapsed: controller.resize(toHeight: 64)
                 case .peeked: controller.resize(toHeight: 64 + 220)
-                case .expanded: controller.resize(toHeight: 64 + 360)
+                case .expanded:
+                    controller.resize(toHeight: 64 + appState.branchContentSize.height)
+                }
+            }
+            .onChange(of: appState.branchContentSize) { _, size in
+                if appState.widgetState == .expanded {
+                    controller.resize(toHeight: 64 + size.height)
                 }
             }
         }
@@ -2830,9 +2969,22 @@ struct WidgetView: View {
 }
 ```
 
-在 `AppState` 中补充拖动改排期的方法：
+在 `AppState` 中补充枝干方向配置与拖动改排期的方法：
 
 ```swift
+    /// 枝干方向（用户可自定义，存 UserDefaults）
+    var branchTuning: BranchTuning {
+        var tuning = BranchTuning()
+        if let raw = UserDefaults.standard.string(forKey: "twig.branchDirection"),
+           let direction = BranchDirection(rawValue: raw) {
+            tuning.direction = direction
+        }
+        return tuning
+    }
+
+    /// BranchView 布局后回写，供窗口扩容器使用
+    var branchContentSize: CGSize = CGSize(width: 560, height: 360)
+
     /// 枝干节点上下拖动 = 在该项目内调整目标排序（sortOrder 交换）
     func moveGoal(nodeID: UUID, verticalDelta: CGFloat) {
         let steps = Int((verticalDelta / 64).rounded())   // 每 64pt 一格
@@ -2874,6 +3026,7 @@ Run: `swift build && .build/debug/TwigApp &`
 - [ ] 拖动节点上下移动松手后排序变化
 - [ ] 点空白处收回 collapsed
 - [ ] 多项目时两条枝干颜色不同、远处更透明
+- [ ] 主窗口设置里切换枝干方向为"向左"→ 虚线和枝干都向左延展；切回"向右"恢复（up/down 方向 v1 仅要求布局正确、不顶出屏幕）
 
 - [ ] **Step 7: Commit**
 
@@ -3244,9 +3397,21 @@ struct SettingsView: View {
     @State private var config = TimerConfig.load()
     @State private var badLineCount = 0
     @State private var loginItem = false
+    @AppStorage("twig.branchDirection") private var branchDirection = BranchDirection.right.rawValue
 
     var body: some View {
         Form {
+            Section("枝干") {
+                Picker("延展方向", selection: $branchDirection) {
+                    Text("向右").tag(BranchDirection.right.rawValue)
+                    Text("向左").tag(BranchDirection.left.rawValue)
+                    Text("向下").tag(BranchDirection.down.rawValue)
+                    Text("向上").tag(BranchDirection.up.rawValue)
+                }
+                Text("悬浮窗贴在屏幕哪条边，就选相反方向")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("计时器") {
                 Stepper("专注 \(config.focusMinutes) 分钟", value: $config.focusMinutes, in: 5...120, step: 5)
                 Stepper("短休息 \(config.shortBreakMinutes) 分钟", value: $config.shortBreakMinutes, in: 1...30)
