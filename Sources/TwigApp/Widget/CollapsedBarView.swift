@@ -4,7 +4,11 @@ import TwigCore
 /// 紧凑横条：当前任务 + 计时 + 进度；末梢画向外延展的虚线（方向跟随枝干方向）
 struct CollapsedBarView: View {
     let appState: AppState
-    private let barHeight: CGFloat = 64
+
+    /// 收起态总高：纵向方向时虚线在横条上/下方，需要更高
+    static func barHeight(for direction: BranchDirection) -> CGFloat {
+        direction.isVertical ? 112 : 64
+    }
 
     var body: some View {
         let dashed = DashedExtensionView(direction: appState.branchTuning.direction)
@@ -20,7 +24,7 @@ struct CollapsedBarView: View {
                 VStack(spacing: 0) { dashed.frame(height: 48); bar }
             }
         }
-        .frame(width: 560, height: barHeight)
+        .frame(width: 560, height: Self.barHeight(for: appState.branchTuning.direction))
         .contentShape(Rectangle())
         .onHover { hovering in
             if hovering { appState.widgetState = .peeked }

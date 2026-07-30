@@ -20,6 +20,8 @@ struct TwigAppMain: App {
         _widgetController = State(initialValue: controller)
         state.start()
         controller.show(rootView: WidgetView(appState: state, controller: controller))
+        // 纵向枝干方向时收起态更高，启动即校正窗口高度
+        controller.resize(toHeight: CollapsedBarView.barHeight(for: state.branchDirection), animated: false)
     }
 
     var body: some Scene {

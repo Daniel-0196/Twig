@@ -4,6 +4,9 @@ import SwiftData
 
 public enum BranchDirection: String, Codable, CaseIterable {
     case right, left, up, down
+
+    /// 纵向（up/down）时横条组装为上下结构，收起态需要更高
+    public var isVertical: Bool { self == .up || self == .down }
 }
 
 public struct BranchTuning: Equatable {
