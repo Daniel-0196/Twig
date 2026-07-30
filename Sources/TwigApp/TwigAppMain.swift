@@ -1,12 +1,47 @@
+import AppKit
 import SwiftUI
-import TwigCore
+import UserNotifications
 
-// Twig macOS App 入口，占位实现（后续任务填充）
 @main
 struct TwigAppMain: App {
-    var body: some Scene {
-        WindowGroup {
-            Text("Twig")
+    @State private var appState: AppState
+    @State private var widgetController: WidgetWindowController?
+
+    init() {
+        // 未打包为 .app（swift build 直跑）时 UserNotifications 无 bundle 可用，跳过授权
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
+        // App 启动即装配：备份/崩溃补记/收件箱监视/快照 + 悬浮窗
+        let state = AppState()
+        let controller = WidgetWindowController()
+        _appState = State(initialValue: state)
+        _widgetController = State(initialValue: controller)
+        state.start()
+        controller.show(rootView: WidgetView(appState: state))
+    }
+
+    var body: some Scene {
+        Window("Twig", id: "main") {
+            Text("主窗口（Task 11 实现）")
+                .frame(minWidth: 720, minHeight: 480)
+                .onAppear { NSApp.activate() }
+        }
+        .defaultLaunchBehavior(.suppressed)
+
+        MenuBarExtra("Twig", systemImage: "leaf") {
+            Button("打开主窗口") { openMain() }
+            Divider()
+            Button("退出 Twig") { NSApp.terminate(nil) }
+        }
+
+        Settings { EmptyView() }
+    }
+
+    @Environment(\.openWindow) private var openWindow
+
+    private func openMain() {
+        openWindow(id: "main")
+        NSApp.activate()
     }
 }
