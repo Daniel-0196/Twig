@@ -11,7 +11,7 @@ struct WidgetView: View {
     }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(alignment: .leading, spacing: 8) {
                 CollapsedBarView(appState: appState)
                 switch appState.widgetState {

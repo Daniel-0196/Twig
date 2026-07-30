@@ -26,19 +26,8 @@ struct TwigAppMain: App {
 
     var body: some Scene {
         Window("Twig", id: "main") {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("主窗口（Task 11 实现）")
-                Picker("枝干方向", selection: directionBinding) {
-                    Text("向右").tag(BranchDirection.right)
-                    Text("向左").tag(BranchDirection.left)
-                    Text("向下").tag(BranchDirection.down)
-                    Text("向上").tag(BranchDirection.up)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 360)
-            }
-            .frame(minWidth: 720, minHeight: 480)
-            .onAppear { NSApp.activate() }
+            MainWindowView(appState: appState)
+                .onAppear { NSApp.activate() }
         }
         .defaultLaunchBehavior(.suppressed)
 
@@ -47,18 +36,9 @@ struct TwigAppMain: App {
             Divider()
             Button("退出 Twig") { NSApp.terminate(nil) }
         }
-
-        Settings { EmptyView() }
     }
 
     @Environment(\.openWindow) private var openWindow
-
-    private var directionBinding: Binding<BranchDirection> {
-        Binding(
-            get: { appState.branchDirection },
-            set: { appState.branchDirection = $0 }
-        )
-    }
 
     private func openMain() {
         openWindow(id: "main")
