@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Twig 交互原型 v6 · 拔树（植物感）</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,"PingFang SC",sans-serif; user-select:none; }
+  body { background:linear-gradient(135deg,#2b2b30,#1c1c21); min-height:100vh; padding:32px; color:#e8e4de; overflow:auto; }
+  .hint { color:#8a857c; font-size:12px; margin-bottom:14px; line-height:1.7; }
+  .hint b { color:#d9d4ca; }
+  .stage { position:relative; width:calc(100vw - 64px); height:calc(100vh - 130px); min-height:540px; }
+  .screen-rect { position:absolute; z-index:2;
+                 border:1.5px dashed rgba(255,255,255,0.28); border-radius:18px;
+                 background:rgba(20,20,26,0.55); pointer-events:none;
+                 transition:box-shadow .25s; }
+  .screen-rect span { position:absolute; right:12px; top:6px; color:#6a655c; font-size:11px; letter-spacing:2px; }
+
+  .dirbar { position:absolute; display:flex; gap:6px; z-index:60; }
+  .dirbar button { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);
+                   color:#c9c4ba; font-size:11px; padding:3px 10px; border-radius:10px; cursor:pointer; }
+  .dirbar button.on { background:rgba(217,119,87,0.35); border-color:#d97757; color:#fff; }
+
+  .bar { display:flex; align-items:center; gap:10px; width:340px; padding:11px 16px;
+         background:rgba(255,255,255,0.09); backdrop-filter:blur(20px);
+         border:1px solid rgba(255,255,255,0.15); border-radius:20px;
+         box-shadow:0 8px 24px rgba(0,0,0,0.35); position:absolute; z-index:50; }
+  .bar .dot { width:9px; height:9px; border-radius:5px; flex:none; }
+  .bar .title { flex:1; font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar .timer { font-size:12.5px; font-weight:600; color:#e8937a; font-variant-numeric:tabular-nums; cursor:pointer; }
+  .bar .fold { font-size:12.5px; color:#8a857c; cursor:pointer; }
+
+  .threads { position:absolute; width:200px; height:44px; z-index:40; }
+  .thread-end { fill:rgba(255,255,255,0.14); stroke-width:1.5; }
+
+  .canvas { position:absolute; left:0; top:0; width:100%; height:100%; }
+  .canvas svg.edges { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
+  .edge { fill:none; stroke-width:1.5; stroke-linecap:round; }
+
+  .node { position:absolute; min-width:96px; max-width:150px; padding:7px 12px;
+          background:rgba(255,255,255,0.10); backdrop-filter:blur(16px);
+          border:1px solid rgba(255,255,255,0.17); border-left:3px solid;
+          border-radius:11px; box-shadow:0 5px 14px rgba(0,0,0,0.32);
+          transition:left .32s cubic-bezier(.2,1,.3,1), top .32s cubic-bezier(.2,1,.3,1);
+          z-index:5; touch-action:none; cursor:grab; }
+  body.pulling .node { transition:none; }   /* 拖拽/回弹期间逐帧驱动，不用 CSS 过渡 */
+  body.pulling .node.emerging { transition:left .45s cubic-bezier(.2,1.2,.3,1), top .45s cubic-bezier(.2,1.2,.3,1), opacity .3s; }
+  .node .t { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .m { font-size:9.5px; color:#9a948a; margin-top:2px; white-space:nowrap; }
+  .node.long { border-style:dashed; border-left-style:solid; }
+  .node.offscreen { opacity:.22; filter:saturate(.5); }
+  .soil { position:absolute; z-index:1; pointer-events:none; transition:all .3s; }
+  .mound { position:absolute; width:22px; height:8px; z-index:2; pointer-events:none;
+           background:radial-gradient(ellipse at center, rgba(150,110,70,0.4), transparent 70%);
+           border-radius:50%; }
+  .detail input.inline { background:none; border:none; outline:none; color:#fff; font:inherit; width:100%;
+                         border-bottom:1px dashed rgba(255,255,255,0.3); }
+  .detail .row .del { margin-left:auto; color:#8a857c; cursor:pointer; font-size:11px; visibility:hidden; }
+  .detail .row:hover .del { visibility:visible; }
+  .detail .addrow input { width:100%; background:none; border:none; outline:none; color:#c9c4ba; font-size:12px;
+                          border-top:1px solid rgba(255,255,255,0.12); padding-top:6px; margin-top:4px; }
+  .node.reveal { animation:pull .35s cubic-bezier(.2,1.3,.4,1); }
+  @keyframes pull { from { transform:scale(.6); opacity:0; } }
+  .node:hover { box-shadow:0 10px 26px rgba(0,0,0,0.45); z-index:30; }
+  .node.moving { z-index:60; box-shadow:0 16px 40px rgba(0,0,0,0.55); }
+  .node .ring { position:absolute; top:-7px; right:-7px; width:18px; height:18px;
+                background:rgba(30,30,36,0.9); border-radius:50%; }
+  .node .ring circle { fill:none; stroke-width:2.5; }
+  .node .ring .bg { stroke:rgba(255,255,255,0.15); }
+  .node.complete { border-color:rgba(143,209,143,0.5); }
+  .node.complete .t { color:#8fd18f; }
+  .node.focusing-node { animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow:0 0 0 0 rgba(232,147,122,0.5); } 50% { box-shadow:0 0 0 7px rgba(232,147,122,0); } }
+
+  .acts { position:absolute; display:none; gap:6px; z-index:70; }
+  .acts.show { display:flex; animation:actpop .15s ease-out; }
+  @keyframes actpop { from { transform:scale(.6); opacity:0; } }
+  .act { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+         background:rgba(40,40,46,0.9); backdrop-filter:blur(10px);
+         border:1px solid rgba(255,255,255,0.25); font-size:12px; cursor:pointer;
+         box-shadow:0 4px 10px rgba(0,0,0,0.4); transition:transform .1s; }
+  .act:hover { transform:scale(1.2); }
+  .act.move { cursor:grab; }
+  .portdot { position:absolute; width:10px; height:10px; border-radius:50%; z-index:75;
+             background:rgba(255,255,255,0.3); border:1.5px solid rgba(255,255,255,0.8);
+             cursor:crosshair; }
+  .portdot:hover { background:rgba(255,255,255,0.7); transform:scale(1.3); }
+
+  .detail { position:absolute; width:210px; padding:12px 14px; z-index:80;
+            background:rgba(30,30,36,0.92); backdrop-filter:blur(20px);
+            border:1px solid rgba(255,255,255,0.18); border-radius:14px;
+            box-shadow:0 14px 36px rgba(0,0,0,0.5); animation:actpop .18s ease-out; }
+  .detail h4 { font-size:13px; margin-bottom:6px; }
+  .detail .meta { font-size:10.5px; color:#9a948a; margin-bottom:8px; }
+  .detail .row { display:flex; gap:7px; align-items:center; padding:4px 0; font-size:12px; cursor:pointer; }
+  .detail .chk { width:12px; height:12px; border-radius:50%; border:1.5px solid; flex:none; }
+  .detail .row.done .txt { text-decoration:line-through; color:#6a655c; }
+  .detail .close { position:absolute; right:8px; top:6px; color:#8a857c; cursor:pointer; font-size:12px; }
+
+  .addcard { position:absolute; width:170px; padding:7px 10px; z-index:90;
+             background:rgba(40,40,46,0.95); border:1px solid rgba(255,255,255,0.28); border-radius:11px; }
+  .addcard input { width:100%; background:none; border:none; outline:none; color:#fff; font-size:12px; }
+
+  .peek { position:absolute; width:340px; padding:13px 16px; z-index:50;
+          background:rgba(255,255,255,0.09); backdrop-filter:blur(20px);
+          border:1px solid rgba(255,255,255,0.15); border-radius:16px;
+          box-shadow:0 8px 24px rgba(0,0,0,0.35); }
+  .peek .label { font-size:11px; color:#8a857c; margin-bottom:7px; }
+  .peek .row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px; cursor:pointer; }
+  .peek .chk { width:12px; height:12px; border-radius:50%; border:1.5px solid; flex:none; }
+</style>
+</head>
+<body>
+<div class="hint">
+  <b>v9 · 0731-深夜：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
+</div>
+<div class="stage" id="stage">
+
+  <div class="dirbar" id="dirbar">
+    <button data-dir="right">向右</button>
+    <button data-dir="down">向下</button>
+    <button data-dir="left">向左</button>
+    <button data-dir="up" class="on">向上</button>
+    <button id="resetBtn" title="重置原型数据" style="border-style:dashed">重置</button>
+  </div>
+  <div class="bar" id="bar">
+    <div class="dot" id="barDot"></div>
+    <div class="title" id="barTitle"></div>
+    <div class="timer" id="barTimer">▶ 开始</div>
+    <div class="timer" id="pauseBtn" style="display:none" title="暂停/继续">⏸</div>
+    <div class="timer" id="stopBtn" style="display:none" title="停止">⏹</div>
+    <div class="fold" id="foldBtn" title="收起/展开">▾</div>
+  </div>
+  <div class="threads" id="threads"></div>
+  <div class="peek" id="peek" style="display:none"></div>
+  <div class="canvas" id="canvas">
+    <div class="soil" id="soil"></div>
+    <div class="screen-rect"><span>屏幕</span></div>
+  </div>
+</div>
+
+<script>
+/* ================= 数据 ================= */
+const projects = [
+  { name:'twig', color:'#d97757', chains:[
+    { goal:'v0.2 画板交互', horizon:'short', due:'8/15', tasks:[
+      {t:'画板交互改版', m:'约120分钟', done:false},
+      {t:'枝干动画调参', m:'未定', done:false},
+      {t:'发布 v0.2', m:'8/15', done:false},
+    ]},
+    { goal:'v0.5 交互定版', horizon:'mid', due:'9/30', tasks:[
+      {t:'日报周报投入使用', m:'未定', done:false},
+      {t:'交互定稿+验收', m:'未定', done:false},
+    ]},
+    { goal:'v1.0 主力工具', horizon:'long', due:'Q4', tasks:[] },
+  ]},
+  { name:'mergeCook4', color:'#5f8a6e', chains:[
+    { goal:'渲染管线重构', horizon:'short', due:'8/20', tasks:[
+      {t:'修 shader 编译错误', m:'已完成', done:true},
+      {t:'写单元测试', m:'约90分钟', done:false},
+    ]},
+    { goal:'玩法闭环', horizon:'mid', due:'10月', tasks:[] },
+  ]},
+];
+
+/* ================= 方向系统 ================= */
+// 主轴向量 + 屏幕边界 + 锚点
+// 中央四边形 = 屏幕（按视口真正居中）；矩形外是土壤
+const stageEl = document.getElementById('stage');
+const RECT = { x: 0, y: 0, w: 0, h: 0 };
+function fitScreen() {
+  const sw = stageEl.clientWidth, sh = stageEl.clientHeight;
+  RECT.w = Math.min(1240, Math.round(sw * 0.76));
+  RECT.h = Math.min(660, Math.round(sh * 0.8));
+  RECT.x = Math.round((sw - RECT.w) / 2);
+  RECT.y = Math.round((sh - RECT.h) / 2);
+  // Chrome 元素跟着矩形走
+  const rectEl = document.querySelector('.screen-rect');
+  rectEl.style.cssText += `left:${RECT.x}px;top:${RECT.y}px;width:${RECT.w}px;height:${RECT.h}px;`;
+  document.getElementById('bar').style.left = (RECT.x + 18) + 'px';
+  document.getElementById('bar').style.top = (RECT.y + 16) + 'px';
+  document.getElementById('threads').style.left = (RECT.x + 18 + 350) + 'px';
+  document.getElementById('threads').style.top = (RECT.y + 16) + 'px';
+  document.getElementById('dirbar').style.left = (RECT.x + RECT.w - 330) + 'px';
+  document.getElementById('dirbar').style.top = (RECT.y - 34) + 'px';
+  document.getElementById('peek').style.left = (RECT.x + 18) + 'px';
+  document.getElementById('peek').style.top = (RECT.y + 68) + 'px';
+  const soil = document.getElementById('soil');
+  soil.style.cssText = `left:0;top:0;width:${sw}px;height:${sh}px;background:rgba(120,85,50,0.10);`;
+  computeDirs();   // RECT 变了，方向几何跟着重算
+}
+// axis: 主轴; soil: 土壤边界坐标; root: 根节点主轴坐标; rSign: 深层延伸; hSign: 土埋方向
+// 注意：必须在 fitScreen() 算出 RECT 后才能填充（见下）
+const DIRS = {};
+function computeDirs() {
+  // 按钮方向 = 拖拽/出土方向；树的朝向相反（根在拖拽起点侧，深层埋在出土对侧的土壤里）
+  Object.assign(DIRS, {
+    right: { ux: 1,  uy: 0,  axis: 'x', soil: RECT.x,          root: RECT.x + RECT.w * 0.6,  rSign: -1, hSign: -1 },
+    down:  { ux: 0,  uy: 1,  axis: 'y', soil: RECT.y,          root: RECT.y + RECT.h * 0.65, rSign: -1, hSign: -1 },
+    left:  { ux: -1, uy: 0,  axis: 'x', soil: RECT.x + RECT.w, root: RECT.x + RECT.w * 0.4,  rSign: 1,  hSign: 1 },
+    up:    { ux: 0,  uy: -1, axis: 'y', soil: RECT.y + RECT.h, root: RECT.y + RECT.h * 0.35, rSign: 1,  hSign: 1 },
+  });
+}
+let direction = 'up';
+const GAP = 190;        // 固定枝距（沿主轴）
+const CROSS_GAP = 240;  // 项目间距（交叉轴）
+
+// 每个节点的自然抖动（按 id 哈希，确定性的，不随重排跳变）
+function hash01(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return h / 0xffff; }
+function jitterOf(n) { return (hash01(n.id) - 0.5) * 44; }        // 交叉轴 ±22
+function spacingOf(n) { return 0.88 + hash01(n.id + 's') * 0.24; } // 主轴 0.88~1.12
+
+let nodes = [], idSeq = 0;
+projects.forEach((p, pi) => {
+  p.chains.forEach((g, gi) => {
+    nodes.push({ id: 'n' + (idSeq++), g, p, chainIndex: gi, revealed: g.horizon === 'short', x: 0, y: 0 });
+  });
+});
+
+// 布局：已揭示节点从锚点沿主轴排（带自然抖动）；未揭示的在屏幕外侧（边界 + 120 起）
+// ✥ 手动移动过的节点（n.cx/cy）不参与重排
+// 布局深度由连线拓扑决定：seq 入度 0 = 根（贴土壤线），沿顺序线递增
+function topoDepths(p) {
+  const pnodes = nodes.filter(n => n.p === p);
+  const indeg = new Map(pnodes.map(n => [n.id, 0]));
+  edges.filter(e => e.type === 'seq').forEach(e => {
+    if (indeg.has(e.to)) indeg.set(e.to, indeg.get(e.to) + 1);
+  });
+  const depth = new Map();
+  const queue = pnodes.filter(n => indeg.get(n.id) === 0);
+  queue.forEach(n => depth.set(n.id, 0));
+  let guard = 0;
+  while (queue.length && guard++ < 200) {
+    const cur = queue.shift();
+    edges.filter(e => e.type === 'seq' && e.from === cur.id).forEach(e => {
+      const nxt = nodes.find(n => n.id === e.to);
+      if (nxt && (!depth.has(nxt.id) || depth.get(nxt.id) < depth.get(cur.id) + 1)) {
+        depth.set(nxt.id, depth.get(cur.id) + 1);
+        queue.push(nxt);
+      }
+    });
+  }
+  pnodes.forEach(n => { if (!depth.has(n.id)) depth.set(n.id, -1); });   // -1 = 孤立节点
+  return depth;
+}
+
+// 卫生检查：子节点出土了，其 seq 祖先必须先出土
+function sanitizeReveal() {
+  let changed = true, guard = 0;
+  while (changed && guard++ < 20) {
+    changed = false;
+    edges.filter(e => e.type === 'seq').forEach(e => {
+      const a = nodes.find(n => n.id === e.from);
+      const b = nodes.find(n => n.id === e.to);
+      if (a && b && b.revealed && !a.revealed) { a.revealed = true; changed = true; }
+    });
+  }
+}
+
+function relayout() {
+  const d = DIRS[direction];
+  // 揭示节点可用的主轴跨度（up 是朝矩形顶部生长，其余朝土壤）
+  const span = d.rSign > 0 ? d.soil - d.root
+             : (d.axis === 'x' ? d.root - d.soil : d.root - RECT.y);
+  const slotsFit = Math.max(1, Math.floor(span / GAP));
+  sanitizeReveal();
+  projects.forEach((p, pi) => {
+    const depth = topoDepths(p);
+    // 已揭示：按（深度, chainIndex）排序占槽，换行防溢出
+    const shown = nodes.filter(n => n.p === p && n.cx === undefined && n.revealed)
+      .sort((a, b) => (depth.get(a.id) - depth.get(b.id)) || (a.chainIndex - b.chainIndex));
+    shown.forEach((n, i) => {
+      const row = Math.floor(i / slotsFit), col = i % slotsFit;
+      setPos(n, col * GAP * spacingOf(n),
+             crossOf(pi) + jitterOf(n) + row * 100);
+    });
+    // 未揭示：按深度排序，浅埋的先出土
+    const hidden = nodes.filter(n => n.p === p && n.cx === undefined && !n.revealed)
+      .sort((a, b) => (depth.get(a.id) - depth.get(b.id)) || (a.chainIndex - b.chainIndex));
+    hidden.forEach((n, j) =>
+      setPos(n, 160 + j * GAP * 1.3, crossOf(pi) + jitterOf(n), true));
+  });
+}
+function setPos(n, slot, cross, hidden = false) {
+  const d = DIRS[direction];
+  // 已揭示：从 root 沿 rSign 排；未揭示：从 soil 沿 hSign 埋
+  const coord = hidden ? d.soil + d.hSign * slot : d.root + d.rSign * slot;
+  if (d.axis === 'x') { n.x = coord; n.y = cross; }
+  else { n.y = coord; n.x = cross; }
+}
+function crossOf(pi) {
+  const d = DIRS[direction];
+  return d.axis === 'x' ? RECT.y + 50 + pi * 150 : RECT.x + 80 + pi * 260;
+}
+function followOf(depth) { return 1 / (1 + depth * 0.25); }
+
+// 从某节点出发的 seq 连通组件（= 一棵"树"）：拔树只动它
+function computeComponent(start) {
+  const comp = new Set([start.id]);
+  const depths = new Map([[start.id, 0]]);
+  const queue = [start];
+  while (queue.length) {
+    const cur = queue.shift();
+    const d = depths.get(cur.id);
+    edges.filter(e => e.type === 'seq').forEach(e => {
+      [[e.from, e.to], [e.to, e.from]].forEach(([x, y]) => {
+        if (x === cur.id && !comp.has(y)) {
+          comp.add(y);
+          depths.set(y, d + 1);
+          const ny = nodes.find(n => n.id === y);
+          if (ny) queue.push(ny);
+        }
+      });
+    });
+  }
+  return { comp, depths };
+}
+// 节点当前渲染位置：已揭示节点跟随拖拽（带滞后），未揭示的钉在土壤里不动
+function renderedPos(n) {
+  const bx = n.cx !== undefined ? n.cx : n.x;
+  const by = n.cy !== undefined ? n.cy : n.y;
+  if (!n.revealed) return { x: bx, y: by };
+  // 只有被拔的那棵树（seq 连通组件）跟着动
+  if (pullState && pullState.component.has(n.id)) {
+    const o = offsetOf(n.p);
+    const f = followOf(pullState.depths.get(n.id) ?? 0);
+    return { x: bx + o.x * f, y: by + o.y * f };
+  }
+  return { x: bx, y: by };
+}
+
+/* ================= 持久化（localStorage） ================= */
+const SAVE_KEY = 'twig-proto-v7';
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      direction,
+      projects,
+      nodes: nodes.map(n => ({ id: n.id, goal: n.g.goal, revealed: n.revealed, cx: n.cx, cy: n.cy })),
+      edges: edges.map(e => ({ from: nodes.find(n => n.id === e.from)?.g.goal,
+                               to: nodes.find(n => n.id === e.to)?.g.goal, type: e.type })),
+    }));
+  } catch (e) {}
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.direction && DIRS[data.direction]) {
+      direction = data.direction;
+      document.querySelectorAll('#dirbar button').forEach(x =>
+        x.classList.toggle('on', x.dataset.dir === direction));
+    }
+    // 用保存的任务状态覆盖默认数据（按 goal 标题匹配）
+    data.projects?.forEach(sp => {
+      const p = projects.find(p => p.name === sp.name);
+      if (!p) return;
+      p.chains = sp.chains;
+    });
+    data.nodes?.forEach(sn => {
+      const n = nodes.find(n => n.g.goal === sn.goal);
+      if (!n) return;
+      n.revealed = sn.revealed;
+      // 夹取手动位置到可视范围，防止旧版异常值把节点丢到屏幕外
+      if (typeof sn.cx === 'number' && typeof sn.cy === 'number' &&
+          sn.cx >= -50 && sn.cx <= 1000 && sn.cy >= -50 && sn.cy <= 550) {
+        n.cx = sn.cx; n.cy = sn.cy;
+      }
+    });
+    if (data.edges) {
+      edges = [];
+      data.edges.forEach(se => {
+        const a = nodes.find(n => n.g.goal === se.from);
+        const b = nodes.find(n => n.g.goal === se.to);
+        if (a && b) edges.push({ id: 'e' + a.id + b.id, from: a.id, to: b.id, type: se.type });
+      });
+    }
+  } catch (e) {}
+}
+// 边是独立实体：seq=顺序关联（带箭头、参与拔树链）、ref=普通引用（细灰线）
+let edges = [];
+projects.forEach(p => {
+  const chain = nodes.filter(n => n.p === p);
+  for (let i = 0; i + 1 < chain.length; i++)
+    edges.push({ id: 'e' + p.name + i, from: chain[i].id, to: chain[i + 1].id, type: 'seq' });
+});
+const seqNext = n => {
+  const e = edges.find(e => e.from === n.id && e.type === 'seq');
+  return e ? nodes.find(x => x.id === e.to) : null;
+};
+
+// 出/入挂点：出口在主轴正侧，入口在反侧
+function portOf(n, isOut) {
+  const d = DIRS[direction];
+  const p = renderedPos(n);
+  const el = nodeEls.get(n.id);
+  const w = el?.offsetWidth || 120, h = el?.offsetHeight || 38;
+  // 出挂点在树朝向侧（rSign），入挂点在反侧
+  if (d.axis === 'x') {
+    return isOut
+      ? { x: p.x + (d.rSign > 0 ? w : 0), y: p.y + h / 2 }
+      : { x: p.x + (d.rSign > 0 ? 0 : w), y: p.y + h / 2 };
+  }
+  return isOut
+    ? { x: p.x + w / 2, y: p.y + (d.rSign > 0 ? h : 0) }
+    : { x: p.x + w / 2, y: p.y + (d.rSign > 0 ? 0 : h) };
+}
+
+/* ================= 元素 ================= */
+const canvas = document.getElementById('canvas');
+const bar = document.getElementById('bar');
+const barTitle = document.getElementById('barTitle');
+const barTimer = document.getElementById('barTimer');
+const barDot = document.getElementById('barDot');
+const threads = document.getElementById('threads');
+const peek = document.getElementById('peek');
+const foldBtn = document.getElementById('foldBtn');
+
+/* ================= 横条 ================= */
+function currentTask() {
+  for (const p of projects) for (const g of p.chains) {
+    const t = g.tasks.find(t => !t.done);
+    if (t) return { p, g, t };
+  }
+  return null;
+}
+let focusing = null, focusNodeId = null, focusEnd = 0, focusLeft = 0, paused = false, timerInt = null;
+const fmt = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+function renderBar() {
+  if (focusing) return;
+  const cur = currentTask();
+  barTitle.textContent = cur ? cur.t.t + ' · ' + cur.g.goal : '全部完成 🎉';
+  if (cur) barDot.style.background = cur.p.color;
+}
+barTimer.onclick = () => { if (!focusing) { const c = currentTask(); if (c) startFocus(c.t.t); } };
+function startFocus(name, nodeId = null) {
+  focusing = name; focusNodeId = nodeId; paused = false;
+  focusEnd = Date.now() + 25*60*1000;
+  barTitle.textContent = name;
+  barTimer.textContent = '25:00';
+  document.getElementById('pauseBtn').style.display = 'block';
+  document.getElementById('stopBtn').style.display = 'block';
+  document.getElementById('pauseBtn').textContent = '⏸';
+  if (nodeId) nodeEls.get(nodeId)?.classList.add('focusing-node');
+  if (timerInt) clearInterval(timerInt);
+  timerInt = setInterval(tickFocus, 500);
+}
+function tickFocus() {
+  if (paused) return;
+  const left = Math.max(0, Math.round((focusEnd - Date.now())/1000));
+  barTimer.textContent = fmt(left);
+  if (!left) endFocus(true);
+}
+function endFocus(completed) {
+  if (timerInt) { clearInterval(timerInt); timerInt = null; }
+  if (completed && focusNodeId) {
+    // 番茄结束内联确认：任务完成了吗？
+    const n = nodes.find(n => n.id === focusNodeId);
+    barTitle.textContent = '完成了吗？';
+    barTimer.innerHTML = '<span id="cfYes" style="cursor:pointer;color:#8fd18f">✓</span> <span id="cfNo" style="cursor:pointer">↻</span>';
+    document.getElementById('cfYes').onclick = () => {
+      const t = n?.g.tasks.find(t => !t.done);
+      if (t) t.done = true;
+      cleanupFocus(); buildTree(); save(); renderBar();
+    };
+    document.getElementById('cfNo').onclick = () => { cleanupFocus(); renderBar(); };
+    return;
+  }
+  cleanupFocus();
+  renderBar();
+}
+function cleanupFocus() {
+  if (focusNodeId) nodeEls.get(focusNodeId)?.classList.remove('focusing-node');
+  focusing = null; focusNodeId = null; paused = false;
+  document.getElementById('pauseBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display = 'none';
+  barTimer.textContent = '▶ 开始';
+}
+document.getElementById('pauseBtn').onclick = () => {
+  if (!focusing) return;
+  paused = !paused;
+  if (paused) {
+    focusLeft = focusEnd - Date.now();
+    document.getElementById('pauseBtn').textContent = '▶';
+  } else {
+    focusEnd = Date.now() + focusLeft;
+    document.getElementById('pauseBtn').textContent = '⏸';
+  }
+};
+document.getElementById('stopBtn').onclick = () => { if (focusing) endFocus(false); };
+renderBar();
+
+/* ================= 虚线（折叠态） ================= */
+function drawThreads() {
+  const ns = 'http://www.w3.org/2000/svg';
+  threads.innerHTML = '';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width','100%'); svg.setAttribute('height','100%');
+  projects.forEach((p, i) => {
+    const y1 = 12 + i * 20;
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', `M 0 22 C 60 22, 80 ${y1}, 168 ${y1}`);
+    path.setAttribute('stroke', p.color); path.setAttribute('stroke-opacity','.5');
+    path.setAttribute('stroke-dasharray','4 6'); path.setAttribute('fill','none');
+    path.setAttribute('stroke-width','1.5'); path.setAttribute('stroke-linecap','round');
+    svg.appendChild(path);
+    const c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', 168); c.setAttribute('cy', y1); c.setAttribute('r', 5);
+    c.setAttribute('stroke', p.color); c.setAttribute('class', 'thread-end');
+    svg.appendChild(c);
+  });
+  threads.appendChild(svg);
+}
+drawThreads();
+
+/* ================= 树渲染 ================= */
+let treeOffsets = {};   // 按项目独立的偏移：不同的树不一起动
+function offsetOf(p) { return treeOffsets[p.name] || (treeOffsets[p.name] = { x: 0, y: 0 }); }
+function resetOffsets() { treeOffsets = {}; }
+const nodeEls = new Map();
+
+
+function buildTree() {
+  canvas.querySelectorAll('.node, svg.edges').forEach(e => e.remove());
+  nodeEls.clear();
+  relayout();
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('class', 'edges');
+  canvas.prepend(svg);
+  nodes.forEach(n => {
+    const total = n.g.tasks.length;
+    const done = n.g.tasks.filter(t => t.done).length;
+    const frac = total ? done / total : 0;
+    const C = 2 * Math.PI * 7;
+    const el = document.createElement('div');
+    el.className = 'node ' + n.g.horizon + (n.revealed ? '' : ' offscreen') + (total > 0 && done === total ? ' complete' : '');
+    el.dataset.id = n.id;
+    el.style.borderLeftColor = n.p.color;
+    el.innerHTML = `<div class="t">${n.g.goal}</div><div class="m">${n.g.due} · ${{short:'短期',mid:'中期',long:'长期'}[n.g.horizon]} · ${total-done}任务</div>` +
+      (total ? `<svg class="ring" viewBox="0 0 18 18">
+        <circle class="bg" cx="9" cy="9" r="7"/>
+        <circle cx="9" cy="9" r="7" stroke="${done===total?'#8fd18f':n.p.color}"
+          stroke-dasharray="${(C*frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 9 9)"/>
+      </svg>` : '');
+    el.onmouseenter = () => showActs(n);
+    el.onmouseleave = () => scheduleHideActs();   // 离开节点不立即收起，进入悬停上下文宽限
+    el.onmousedown = (e) => startPull(e, n);
+    el.onclick = () => { if (!pullMoved) showDetail(n); };
+    canvas.appendChild(el);
+    nodeEls.set(n.id, el);
+  });
+  applyTree();
+}
+
+function renderMounds() {
+  canvas.querySelectorAll('.mound').forEach(e => e.remove());
+  const d = DIRS[direction];
+  nodes.filter(n => !n.revealed).forEach(n => {
+    const m = document.createElement('div');
+    m.className = 'mound';
+    if (d.axis === 'x') {
+      m.style.cssText += `left:${d.soil - 11}px;top:${n.y + 14}px;transform:rotate(90deg);`;
+    } else {
+      m.style.cssText += `left:${n.x + 40}px;top:${d.soil - 4}px;`;
+    }
+    canvas.appendChild(m);
+  });
+}
+
+function applyTree() {
+  renderMounds();
+  const d = DIRS[direction];
+  let changed = false;
+  nodes.forEach(n => {
+    const el = nodeEls.get(n.id);
+    if (!el) return;
+    const p = renderedPos(n);   // 未揭示节点钉在土里
+    el.style.left = p.x + 'px';
+    el.style.top  = p.y + 'px';
+    // 拔出量超过它的埋土深度 → 从土壤里被拽出来（只作用于被拔的那棵树）
+    // 且必须按拓扑顺序：seq 父节点还没出土，轮不到它
+    const seqParent = edges.find(e => e.to === n.id && e.type === 'seq');
+    const parentNode = seqParent ? nodes.find(nd => nd.id === seqParent.from) : null;
+    if (!n.revealed && pullState && pullState.component.has(n.id)
+        && (!parentNode || parentNode.revealed)) {
+      const o = offsetOf(n.p);
+      const rawPull = d.axis === 'x' ? o.x * d.ux : o.y * d.uy;
+      // 峰值拔力：猛拽冲过阈值就算数，重力拽回去不反悔
+      pullState.peakRaw = Math.max(pullState.peakRaw || 0, rawPull);
+      const pullMain = Math.max(pullState.peakRaw, rawPull) - (pullState.consumed || 0);
+      const restMain = d.axis === 'x' ? n.x : n.y;
+      const buried = Math.abs(restMain - d.soil) + 40;
+      // 出土前半透明渐变：越接近出土越清晰
+      el.style.opacity = Math.max(0.22, Math.min(0.85, 0.22 + (pullMain / buried) * 0.6));
+      if (pullMain > buried) {
+        n.revealed = true;
+        n.justRevealed = true;
+        el.style.opacity = '';
+        pullState.consumed = (pullState.consumed || 0) + buried;   // 消耗这次拉力
+        changed = true;
+      }
+    }
+  });
+  if (changed) {
+    // 先记住每个刚出土节点的"土里位置"
+    const emergeFrom = new Map();
+    nodes.forEach(n => {
+      if (n.justRevealed) {
+        const el = nodeEls.get(n.id);
+        emergeFrom.set(n.id, { x: parseFloat(el.style.left), y: parseFloat(el.style.top) });
+      }
+    });
+    relayout();
+    save();   // 揭示后重排：新节点进屏内槽位，剩余隐藏节点退到屏外
+    nodes.forEach(n => {
+      const el = nodeEls.get(n.id);
+      const p = renderedPos(n);
+      if (n.revealed && el.classList.contains('offscreen')) {
+        // 出土生长：先放回土里位置，下一帧带过渡滑到槽位
+        const from = emergeFrom.get(n.id);
+        el.classList.remove('offscreen');
+        el.style.left = from.x + 'px';
+        el.style.top = from.y + 'px';
+        requestAnimationFrame(() => {
+          el.classList.add('emerging');
+          const p2 = renderedPos(n);
+          el.style.left = p2.x + 'px';
+          el.style.top = p2.y + 'px';
+          el.style.opacity = 1;
+          setTimeout(() => el.classList.remove('emerging'), 520);
+        });
+        el.classList.add('reveal');
+      } else {
+        el.style.left = p.x + 'px';
+        el.style.top  = p.y + 'px';
+      }
+    });
+  }
+  // D: 阈值预热——接近出土时屏幕边界发光
+  const rectEl = document.querySelector('.screen-rect');
+  let hot = false;
+  if (pullState) {
+    for (const n of nodes) {
+      if (n.revealed || !pullState.component.has(n.id)) continue;
+      const parent = edges.find(e => e.to === n.id && e.type === 'seq');
+      if (parent && !nodes.find(nd => nd.id === parent.from)?.revealed) continue;
+      const buried = Math.abs((d.axis === 'x' ? n.x : n.y) - d.soil) + 40;
+      const rawPull = d.axis === 'x' ? offsetOf(n.p).x * d.ux : offsetOf(n.p).y * d.uy;
+      const pm = Math.max(pullState.peakRaw || 0, rawPull) - (pullState.consumed || 0);
+      if (pm > buried * 0.65) { hot = true; break; }
+    }
+  }
+  rectEl.style.boxShadow = hot ? '0 0 28px rgba(217,119,87,0.4)' : '';
+
+  redrawEdges();
+  positionActs();
+}
+
+function redrawEdges() {
+  const svg = canvas.querySelector('svg.edges');
+  if (!svg) return;
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const d = DIRS[direction];
+  // g = 树的朝向（根→深层），连线/箭头都沿它
+  const g = { x: d.axis === 'x' ? d.rSign : 0, y: d.axis === 'y' ? d.rSign : 0 };
+  edges.forEach(e => {
+    const a = nodes.find(n => n.id === e.from);
+    const b = nodes.find(n => n.id === e.to);
+    if (!a || !b || (!a.revealed && !b.revealed)) return;
+    const out = portOf(a, true);
+    const end = portOf(b, false);
+    const isSeq = e.type === 'seq';
+    const color = isSeq ? a.p.color : 'rgba(255,255,255,0.3)';
+    // 悬垂弯曲：垂直主轴的弯平面；静态微弯 + 随拖拽横向分量同向变弯
+    const perpU = { x: -g.y, y: g.x };
+    const chordLen = Math.max(1, Math.hypot(end.x - out.x, end.y - out.y));
+    const o = offsetOf(a.p);
+    const crossPull = d.axis === 'x' ? o.y : o.x;
+    const bowStatic = Math.min(10, chordLen * 0.06) * (hash01(e.id) > 0.5 ? 1 : -1);
+    const bowDyn = Math.max(-55, Math.min(55, crossPull * 0.4));
+    const bow = bowStatic + bowDyn;
+    const perp = { x: perpU.x * bow, y: perpU.y * bow };
+
+    if (!b.revealed) {
+      // 跨界（seq）：土壤交界点弯折——地上实线、地下虚线
+      if (!isSeq) return;
+      const main = p => d.axis === 'x' ? p.x : p.y;
+      const t = Math.max(0.05, Math.min(0.95, (d.soil - main(out)) / (main(end) - main(out))));
+      const S = { x: out.x + (end.x - out.x) * t, y: out.y + (end.y - out.y) * t };
+      const c1 = { x: out.x + g.x * 40 + perp.x * 0.7, y: out.y + g.y * 40 + perp.y * 0.7 };
+      const c2 = { x: S.x - g.x * 24 + perp.x * 0.9, y: S.y - g.y * 24 + perp.y * 0.9 };
+      const above = document.createElementNS(ns, 'path');
+      above.setAttribute('d', `M ${out.x} ${out.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${S.x} ${S.y}`);
+      above.setAttribute('stroke', color);
+      above.setAttribute('stroke-opacity', '.75');
+      above.setAttribute('class', 'edge');
+      svg.appendChild(above);
+      const c3 = { x: S.x + g.x * 30, y: S.y + g.y * 30 };
+      const c4 = { x: end.x - g.x * 40, y: end.y - g.y * 40 };
+      const below = document.createElementNS(ns, 'path');
+      below.setAttribute('d', `M ${S.x} ${S.y} C ${c3.x} ${c3.y}, ${c4.x} ${c4.y}, ${end.x} ${end.y}`);
+      below.setAttribute('stroke', color);
+      below.setAttribute('stroke-dasharray', '4 6');
+      below.setAttribute('stroke-opacity', '.45');
+      below.setAttribute('class', 'edge');
+      svg.appendChild(below);
+      return;
+    }
+
+    // 普通边：出挂点法向伸出 → 入挂点，seq 带箭头
+    const norm = 40;
+    const m1 = { x: out.x + g.x * norm + perp.x * 0.8, y: out.y + g.y * norm + perp.y * 0.8 };
+    const m2 = { x: end.x - g.x * norm + perp.x, y: end.y - g.y * norm + perp.y };
+    const pathD = `M ${out.x} ${out.y} C ${m1.x} ${m1.y}, ${m2.x} ${m2.y}, ${end.x} ${end.y}`;
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', pathD);
+    path.setAttribute('stroke', color);
+    path.setAttribute('class', 'edge' + (b.justRevealed ? ' grow' : ''));
+    b.justRevealed = false;
+    path.setAttribute('stroke-opacity', isSeq ? '.75' : '.6');
+    path.setAttribute('stroke-width', isSeq ? Math.max(1, 2 - a.chainIndex * 0.35) : 1);
+    if (!isSeq) path.setAttribute('stroke-dasharray', '2 4');
+    svg.appendChild(path);
+
+    if (isSeq) drawArrow(svg, end, g, color);
+
+    // 隐形双击热区：双击切换 顺序/引用
+    const hit = document.createElementNS(ns, 'path');
+    hit.setAttribute('d', pathD);
+    hit.setAttribute('stroke', 'rgba(0,0,0,0)');
+    hit.setAttribute('stroke-width', '14');
+    hit.setAttribute('fill', 'none');
+    hit.style.pointerEvents = 'stroke';
+    hit.style.cursor = 'pointer';
+    hit.ondblclick = (ev) => {
+      ev.stopPropagation();
+      e.type = e.type === 'seq' ? 'ref' : 'seq';
+      redrawEdges(); save();
+    };
+    svg.appendChild(hit);
+  });
+}
+
+function drawArrow(svg, at, g, color) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const size = 5;
+  const tip = { x: at.x + g.x * 1, y: at.y + g.y * 1 };
+  const back = { x: at.x - g.x * 11, y: at.y - g.y * 11 };
+  const pu = { x: -g.y, y: g.x };
+  const poly = document.createElementNS(ns, 'polygon');
+  poly.setAttribute('points',
+    `${tip.x},${tip.y} ${back.x + pu.x * size},${back.y + pu.y * size} ${back.x - pu.x * size},${back.y - pu.y * size}`);
+  poly.setAttribute('fill', color);
+  svg.appendChild(poly);
+}
+
+/* ================= 拔树 ================= */
+let pullState = null, pullMoved = false;
+const GRAVITY = 2.2;      // 土壤回吸速度（px/帧），越大越"重"
+const FOLLOW = 0.28;      // 手对树的驱动强度
+
+function startPull(e, n) {
+  e.preventDefault();
+  hideDetail();
+  const o = offsetOf(n.p);
+  const { comp, depths } = computeComponent(n);
+  pullState = { project: n.p, startX: e.clientX, startY: e.clientY,
+                baseOffset: { ...o }, targetX: o.x, targetY: o.y,
+                component: comp, depths, consumed: 0, peakRaw: 0 };
+  document.body.classList.add('pulling');
+  pullMoved = false;
+  startGravity();
+}
+
+// 重力循环：手的目标是拖拽位移，土壤不停把树往回吸——停手就往下滑
+let gravityRaf = null;
+function startGravity() {
+  cancelAnimationFrame(gravityRaf);
+  const step = () => {
+    if (!pullState) return;
+    const o = offsetOf(pullState.project);
+    const d = DIRS[direction];
+    // 手驱动：向目标位移靠近
+    o.x += (pullState.targetX - o.x) * FOLLOW;
+    o.y += (pullState.targetY - o.y) * FOLLOW;
+    // 重力：沿主轴往土壤里吸 + 交叉轴回正
+    if (d.ux !== 0) {
+      o.x -= Math.sign(o.x) * Math.min(Math.abs(o.x), GRAVITY + Math.abs(o.x) * 0.02);
+      o.y -= Math.sign(o.y) * Math.min(Math.abs(o.y), 0.8);
+    } else {
+      o.y -= Math.sign(o.y) * Math.min(Math.abs(o.y), GRAVITY + Math.abs(o.y) * 0.02);
+      o.x -= Math.sign(o.x) * Math.min(Math.abs(o.x), 0.8);
+    }
+    applyTree();
+    gravityRaf = requestAnimationFrame(step);
+  };
+  gravityRaf = requestAnimationFrame(step);
+}
+document.addEventListener('mousemove', (e) => {
+  if (connectState) { updateRubber(e); return; }
+  if (pullState) {
+    const dx = (e.clientX - pullState.startX) * 0.9;
+    const dy = (e.clientY - pullState.startY) * 0.9;
+    if (Math.abs(dx) + Math.abs(dy) > 4) pullMoved = true;
+    pullState.targetX = pullState.baseOffset.x + dx;
+    pullState.targetY = pullState.baseOffset.y + dy;
+  }
+  if (moveState) {
+    const { n, startX, startY, origX, origY } = moveState;
+    n.x = origX + (e.clientX - startX);
+    n.y = origY + (e.clientY - startY);
+    n.cx = n.x; n.cy = n.y;   // ✥ 移动的位置保留（不参与重排）
+    applyTree();
+  }
+});
+document.addEventListener('mouseup', (e) => {
+  if (connectState) { endConnect(e); return; }
+  if (pullState) {
+    cancelAnimationFrame(gravityRaf);
+    springBack();
+    setTimeout(() => { pullMoved = false; }, 50);
+  }
+  if (moveState) {
+    nodeEls.get(moveState.n.id)?.classList.remove('moving');
+    moveState = null;
+    save();
+  }
+});
+function springBack() {
+  const project = pullState?.project;
+  if (!project) { pullState = null; return; }
+  const o = offsetOf(project);
+  const start = { ...o };
+  const t0 = performance.now();
+  const c1 = 1.70158, c3 = c1 + 1;
+  function frame(t) {
+    const k = Math.min(1, (t - t0) / 380);
+    const e = 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2);   // easeOutBack：回弹过冲
+    o.x = start.x * (1 - e);
+    o.y = start.y * (1 - e);
+    applyTree();
+    if (k < 1) requestAnimationFrame(frame);
+    else { o.x = 0; o.y = 0; pullState = null; applyTree();
+      document.body.classList.remove('pulling'); }   // 末帧才清空，回弹过程节点仍随偏移渲染
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ================= 悬停操作（节点+功能区 = 同一悬停上下文） ================= */
+let actsEl = null, actsNode = null, moveState = null, hideTimer = null;
+function scheduleHideActs() {   // 180ms 宽限：跨过节点↔功能区空隙不收起
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(hideActs, 180);
+}
+function cancelHideActs() { clearTimeout(hideTimer); }
+function showActs(n) {
+  cancelHideActs();
+  if (actsNode === n && actsEl) return;   // 同一上下文，不重建
+  hideActs();
+  if (!n.revealed || pullState) return;
+  actsNode = n;
+  actsEl = document.createElement('div');
+  actsEl.className = 'acts show';
+  actsEl.innerHTML = `
+    <div class="act" title="新增分支" style="color:#8fd18f">＋</div>
+    <div class="act" title="开始番茄" style="color:#e8937a">▶</div>
+    <div class="act" title="删除" style="color:#ddd">🗑</div>
+    <div class="act move" title="移动节点（按住拖）" style="color:#9ec1ea">✥</div>`;
+  const [a, b, c, m] = actsEl.children;
+  a.onclick = (e) => { e.stopPropagation(); showAddCard(n); };
+  b.onclick = (e) => { e.stopPropagation(); startFocus(n.g.goal, n.id); };
+  c.onclick = (e) => { e.stopPropagation();
+    const el = nodeEls.get(n.id);
+    el.style.transition = 'opacity .2s, transform .2s';
+    el.style.opacity = 0; el.style.transform = 'scale(.5)';
+    setTimeout(() => { removeNode(n); buildTree(); save(); }, 200);
+  };
+  m.onmousedown = (e) => {
+    e.stopPropagation(); e.preventDefault();
+    moveState = { n, startX: e.clientX, startY: e.clientY, origX: n.x, origY: n.y };
+    nodeEls.get(n.id)?.classList.add('moving');
+  };
+  actsEl.onmouseenter = cancelHideActs;   // 进入功能区 = 留在上下文
+  actsEl.onmouseleave = scheduleHideActs; // 离开功能区才真正退出上下文
+  canvas.appendChild(actsEl);
+  positionActs();
+  showPortDot(n);
+}
+function positionActs() {
+  if (actsEl && actsNode) {
+    const o = offsetOf(actsNode.p);
+    actsEl.style.left = (actsNode.x + o.x - 6) + 'px';
+    actsEl.style.top  = (actsNode.y + o.y - 32) + 'px';
+  }
+}
+function hideActs() { actsEl?.remove(); actsEl = null; actsNode = null; hidePortDot(); }
+
+// 出挂点：悬停节点时出现，按住拖出橡皮线连到别的节点
+let portDot = null, connectState = null;
+function showPortDot(n) {
+  hidePortDot();
+  const p = portOf(n, true);
+  portDot = document.createElement('div');
+  portDot.className = 'portdot';
+  portDot.style.cssText = `left:${p.x - 5}px;top:${p.y - 5}px;`;
+  portDot.title = '拖到别的节点建立顺序关联';
+  portDot.onmouseenter = cancelHideActs;
+  portDot.onmouseleave = scheduleHideActs;
+  portDot.onmousedown = (e) => {
+    e.stopPropagation(); e.preventDefault();
+    connectState = { from: n };
+  };
+  canvas.appendChild(portDot);
+}
+function hidePortDot() { portDot?.remove(); portDot = null; }
+function updateRubber(e) {
+  if (!connectState) return;
+  const svg = canvas.querySelector('svg.edges');
+  if (!svg) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  let line = svg.querySelector('#rubber');
+  const from = portOf(connectState.from, true);
+  const rect = canvas.getBoundingClientRect();
+  const tx = e.clientX - rect.left, ty = e.clientY - rect.top;
+  if (!line) {
+    line = document.createElementNS(ns, 'path');
+    line.id = 'rubber';
+    line.setAttribute('stroke', '#fff');
+    line.setAttribute('stroke-opacity', '.6');
+    line.setAttribute('stroke-dasharray', '4 4');
+    line.setAttribute('class', 'edge');
+    svg.appendChild(line);
+  }
+  const mx = (from.x + tx) / 2;
+  line.setAttribute('d', `M ${from.x} ${from.y} C ${mx} ${from.y}, ${mx} ${ty}, ${tx} ${ty}`);
+}
+function endConnect(e) {
+  if (!connectState) return;
+  const target = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.node');
+  const to = target ? nodes.find(n => n.id === target.dataset.id) : null;
+  if (to && to !== connectState.from) {
+    // 一个节点只保留一条出向顺序线
+    edges = edges.filter(x => !(x.from === connectState.from.id && x.type === 'seq'));
+    edges.push({ id: 'e' + Date.now(), from: connectState.from.id, to: to.id, type: 'seq' });
+    to.revealed = true;
+    buildTree(); save();
+  }
+  connectState = null;
+  canvas.querySelector('#rubber')?.remove();
+}
+
+function removeNode(n) {
+  nodes.splice(nodes.indexOf(n), 1);
+  const gi = n.p.chains.indexOf(n.g); if (gi >= 0) n.p.chains.splice(gi, 1);
+  edges = edges.filter(e => e.from !== n.id && e.to !== n.id);
+}
+
+/* ================= 新增分支 ================= */
+function showAddCard(n) {
+  document.querySelectorAll('.addcard').forEach(e => e.remove());
+  const card = document.createElement('div');
+  card.className = 'addcard';
+  const o = offsetOf(n.p);
+  card.style.cssText = `left:${n.x + o.x + 110}px;top:${n.y + o.y - 4}px;`;
+  card.innerHTML = `<input placeholder="新分支名，Enter 创建">`;
+  canvas.appendChild(card);
+  const input = card.querySelector('input');
+  input.focus();
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter' && input.value.trim()) {
+      // 新节点只继承项目，独立存在（不自动挂到链尾）；要从挂点拉线才建立顺序关联
+      const g = { goal: input.value.trim(), horizon: n.g.horizon, due:'未定', tasks:[] };
+      n.p.chains.push(g);
+      nodes.push({ id:'n'+(idSeq++), g, p: n.p, chainIndex: n.chainIndex,
+                   revealed: true, cx: n.cx !== undefined ? n.cx + 40 : undefined,
+                   cy: n.cy !== undefined ? n.cy + 46 : undefined, x: n.x + 40, y: n.y + 46 });
+      card.remove(); buildTree(); save();
+    }
+    if (ev.key === 'Escape') card.remove();
+  };
+}
+
+/* ================= 详情（内联编辑） ================= */
+let detailEl = null;
+function showDetail(n) {
+  hideDetail();
+  detailEl = document.createElement('div');
+  detailEl.className = 'detail';
+  const rp = renderedPos(n);
+  // 面板夹取到屏幕矩形内
+  const x = Math.max(RECT.x + 8, Math.min(rp.x + 8, RECT.x + RECT.w - 224));
+  const y = Math.max(RECT.y + 8, Math.min(rp.y + 44, RECT.y + RECT.h - 220));
+  detailEl.style.cssText = `left:${x}px;top:${y}px;`;
+  const open = n.g.tasks.filter(t => !t.done).length;
+  detailEl.innerHTML = `
+    <div class="close">✕</div>
+    <h4 style="color:${n.p.color}" title="双击改名">${n.g.goal}</h4>
+    <div class="meta">${{short:'短期',mid:'中期',long:'长期'}[n.g.horizon]} · <span class="due" title="双击改日期">${n.g.due}</span> · ${n.p.name} · 剩 ${open} 任务</div>
+    <div class="tasks"></div>
+    <div class="addrow"><input placeholder="＋ 新任务，Enter 添加"></div>`;
+  detailEl.querySelector('.close').onclick = hideDetail;
+
+  // 双击改目标名
+  const h4 = detailEl.querySelector('h4');
+  h4.ondblclick = () => inlineEdit(h4, n.g.goal, v => { n.g.goal = v; buildTree(); save(); showDetail(n); });
+  // 双击改日期
+  const due = detailEl.querySelector('.due');
+  due.ondblclick = () => inlineEdit(due, n.g.due, v => { n.g.due = v; buildTree(); save(); showDetail(n); });
+
+  // 任务列表
+  const taskBox = detailEl.querySelector('.tasks');
+  n.g.tasks.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'row' + (t.done ? ' done' : '');
+    row.innerHTML = `<div class="chk" style="border-color:${n.p.color};${t.done?`background:${n.p.color}`:''}"></div>
+      <div class="txt">${t.t}</div><div class="del" title="删除任务">✕</div>`;
+    row.onclick = (e) => {
+      if (e.target.classList.contains('del')) return;
+      t.done = !t.done; showDetail(n); renderBar(); buildTree(); save();
+    };
+    row.querySelector('.del').onclick = (e) => {
+      e.stopPropagation();
+      n.g.tasks.splice(n.g.tasks.indexOf(t), 1);
+      showDetail(n); renderBar(); buildTree(); save();
+    };
+    row.querySelector('.txt').ondblclick = (e) => {
+      e.stopPropagation();
+      inlineEdit(row.querySelector('.txt'), t.t, v => { t.t = v; save(); showDetail(n); });
+    };
+    taskBox.appendChild(row);
+  });
+  if (!n.g.tasks.length) taskBox.innerHTML = '<div class="meta">还没有任务</div>';
+
+  // 底部加任务
+  const input = detailEl.querySelector('.addrow input');
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter' && input.value.trim()) {
+      n.g.tasks.push({ t: input.value.trim(), m: '未定', done: false });
+      showDetail(n); renderBar(); buildTree(); save();
+    }
+    if (ev.key === 'Escape') hideDetail();
+  };
+  detailEl.onclick = (e) => e.stopPropagation();
+  canvas.appendChild(detailEl);
+}
+function inlineEdit(el, initial, commit) {
+  const input = document.createElement('input');
+  input.className = 'inline';
+  input.value = initial;
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+  const done = (ok) => { if (ok && input.value.trim()) commit(input.value.trim()); else showDetailSafe(); };
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter') done(true);
+    if (ev.key === 'Escape') done(false);
+  };
+  input.onblur = () => done(true);
+}
+function showDetailSafe() { /* blur/esc 兜底：重开当前详情 */ }
+function hideDetail() { detailEl?.remove(); detailEl = null; }
+
+/* ================= 今日清单 ================= */
+function renderPeek() {
+  const rows = [];
+  projects.forEach(p => p.chains.forEach(g => g.tasks.filter(t=>!t.done).forEach(t => rows.push({p, t}))));
+  peek.innerHTML = '<div class="label">今日</div>';
+  rows.slice(0,6).forEach(({p,t}) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<div class="chk" style="border-color:${p.color}"></div><div class="txt" style="flex:1">${t.t}</div><div class="play" style="color:#e8937a;cursor:pointer;font-size:11px">▶</div>`;
+    row.querySelector('.chk').onclick = () => {
+      t.done = !t.done; renderPeek(); renderBar(); buildTree(); save();
+    };
+    row.querySelector('.play').onclick = () => { startFocus(t.t); peek.style.display = 'none'; };
+    peek.appendChild(row);
+  });
+}
+
+/* ================= 方向切换 ================= */
+document.querySelectorAll('#dirbar button').forEach(b => b.onclick = (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('#dirbar button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  direction = b.dataset.dir;
+  pullState = null;
+  cancelAnimationFrame(gravityRaf);
+  resetOffsets();
+  buildTree(); save();
+});
+
+/* ================= 折叠/展开 ================= */
+let folded = false;
+foldBtn.onclick = (e) => {
+  e.stopPropagation();
+  folded = !folded;
+  canvas.style.display = folded ? 'none' : 'block';
+  threads.style.display = folded ? 'block' : 'none';
+  foldBtn.textContent = folded ? '▸' : '▾';
+};
+threads.style.display = 'none';
+bar.onmouseenter = () => { if (!folded) { renderPeek(); peek.style.display = 'block'; } };
+bar.onmouseleave = () => { peek.style.display = 'none'; };
+canvas.onclick = (e) => { if (e.target === canvas || e.target.tagName === 'svg') hideDetail(); };
+
+document.getElementById('resetBtn').onclick = (e) => {
+  e.stopPropagation();
+  localStorage.removeItem(SAVE_KEY);
+  location.reload();
+};
+fitScreen();
+window.addEventListener('resize', () => { fitScreen(); buildTree(); });
+load();
+buildTree();
+</script>
+</body>
+</html>
