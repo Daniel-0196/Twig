@@ -25,12 +25,18 @@ final class WidgetWindowController {
         self.panel = panel
     }
 
-    /// 状态切换时改高度（展开枝干时变高），宽度 560 固定（380 横条 + 180 枝干留白）
+    /// 状态切换时改尺寸（展开枝干时变高变宽）。宽度默认 560（380 横条 + 180 枝干留白），
+    /// 展开态按枝干内容宽度放大，避免超宽裁切
     func resize(toHeight height: CGFloat, animated: Bool = true) {
+        resize(toWidth: 560, height: height, animated: animated)
+    }
+
+    /// 顶边不动、左边不动，向右向下扩/收
+    func resize(toWidth width: CGFloat, height: CGFloat, animated: Bool = true) {
         guard let panel else { return }
         var frame = panel.frame
         frame.origin.y += frame.height - height
-        frame.size.height = height
+        frame.size = NSSize(width: width, height: height)
         panel.setFrame(frame, display: true, animate: animated)
     }
 

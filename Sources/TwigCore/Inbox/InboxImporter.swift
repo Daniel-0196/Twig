@@ -16,9 +16,28 @@ public final class InboxImporter {
 
     @discardableResult
     public func importInbox(at inboxURL: URL, badLinesURL: URL) throws -> ImportReport {
-        guard let data = FileManager.default.contents(atPath: inboxURL.path),
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: inboxURL.path) else { return ImportReport() }
+
+        // 先把收件箱原子 rename 成 processing 文件再处理：
+        // read→清空之间 CLI 追加的行会落在重建的新 inbox 里，不会被误清（丢数据窗口）
+        let processingURL = inboxURL.deletingPathExtension()
+            .appendingPathExtension("processing.jsonl")
+        try? fm.removeItem(at: processingURL)   // 上次崩溃残留
+        let renamed: Bool
+        do {
+            try fm.moveItem(at: inboxURL, to: processingURL)
+            renamed = true
+        } catch {
+            renamed = false   // rename 失败兜底：直接读原文件，处理后 truncate
+        }
+        let sourceURL = renamed ? processingURL : inboxURL
+        guard let data = fm.contents(atPath: sourceURL.path),
               let text = String(data: data, encoding: .utf8)
-        else { return ImportReport() }
+        else {
+            if renamed { try? fm.removeItem(at: processingURL) }
+            return ImportReport()
+        }
 
         var report = ImportReport()
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -38,8 +57,15 @@ public final class InboxImporter {
             report.imported += 1
         }
 
-        // 清空收件箱
-        try "".write(to: inboxURL, atomically: true, encoding: .utf8)
+        if renamed {
+            // processing 文件处理完直接删除；inbox 由 watcher/CLI 按需重建
+            try? fm.removeItem(at: processingURL)
+        } else {
+            // 兜底清空：truncate 保持 inode（atomic write 会替换 inode，文件监视器永久失效）
+            let handle = try FileHandle(forWritingTo: inboxURL)
+            try handle.truncate(atOffset: 0)
+            try handle.close()
+        }
 
         // 坏行留档（追加，不覆盖）
         if !report.badLines.isEmpty {

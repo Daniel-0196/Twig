@@ -32,7 +32,8 @@ struct TwigAppMain: App {
         .defaultLaunchBehavior(.suppressed)
 
         MenuBarExtra("Twig", systemImage: "leaf") {
-            switch appState.timerStore.engine.state {
+            // 读 AppState 的 @Observable 镜像（engineState），而非不可观察的 engine.state
+            switch appState.engineState {
             case .idle:
                 Button("开始番茄钟") { appState.timerStore.start(task: nil, mode: .pomodoro) }
                 Button("开始正计时") { appState.timerStore.start(task: nil, mode: .stopwatch) }

@@ -25,6 +25,12 @@ final class AppState {
     /// BranchView 布局后回写，供窗口扩容器使用
     var branchContentSize: CGSize = CGSize(width: 560, height: 360)
 
+    /// 引擎状态的 @Observable 镜像：TimerStore/PomodoroEngine 不可观察，
+    /// MenuBarExtra / 横条读这里才能随状态变化刷新（由 timerStore.onStateChange 回写）
+    private(set) var engineState: EngineState = .idle
+    /// pendingCompletionCheck 的镜像（"任务完成了吗？"横条确认按钮的显示开关）
+    private(set) var pendingCompletionCheck = false
+
     /// 枝干布局参数（全部可调——交互手感迭代就改这里）
     var branchTuning: BranchTuning {
         var tuning = BranchTuning()
@@ -39,9 +45,17 @@ final class AppState {
     init() {
         let raw = UserDefaults.standard.string(forKey: "twig.branchDirection")
         branchDirection = raw.flatMap { BranchDirection(rawValue: $0) } ?? .right
+        // 先备份再打开/迁移数据库（spec §10）：迁移失败尚有备份可回滚
+        try? StoreBackup.backupNow()
         do {
             container = try TwigStore.makeContainer()
         } catch {
+            let alert = NSAlert()
+            alert.messageText = "数据库损坏"
+            alert.informativeText = "无法打开数据库（\(error.localizedDescription)）。启动前的备份保留在 \(TwigPaths.backupsDir.path)，把备份目录里的 twig.store* 复制回 \(TwigPaths.supportDir.path) 即可回滚。"
+            alert.addButton(withTitle: "退出")
+            alert.runModal()
+            NSApp.terminate(nil)
             fatalError("数据库打开失败：\(error.localizedDescription)")
         }
         taskStore = TaskStore(container: container)
@@ -49,20 +63,28 @@ final class AppState {
     }
 
     func start() {
-        try? StoreBackup.backupNow()
         recoverUnclosedEntries()
-        importInbox()
         watchInbox()
+        handleInboxWrite()
         exportSnapshot()
         snapshotTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             _Concurrency.Task { @MainActor in self?.exportSnapshot() }
         }
         timerStore.onEvent = { [weak self] event in self?.handleEngineEvent(event) }
+        timerStore.onStateChange = { [weak self] in self?.syncEngineMirror() }
+        syncEngineMirror()
+    }
+
+    private func syncEngineMirror() {
+        if engineState != timerStore.engine.state { engineState = timerStore.engine.state }
+        if pendingCompletionCheck != timerStore.pendingCompletionCheck {
+            pendingCompletionCheck = timerStore.pendingCompletionCheck
+        }
     }
 
     var currentFocusTitle: String {
         if let task = timerStore.activeTask { return task.title }
-        switch timerStore.engine.state {
+        switch engineState {
         case .idle: return "点我开始专注"
         case .focusing: return "专注中"
         case .onBreak(_, _, let isLong): return isLong ? "长休息" : "短休息"
@@ -122,6 +144,8 @@ final class AppState {
     }
 
     private func watchInbox() {
+        inboxWatcher?.cancel()
+        inboxWatcher = nil
         try? FileManager.default.createDirectory(at: TwigPaths.supportDir, withIntermediateDirectories: true)
         if !FileManager.default.fileExists(atPath: TwigPaths.inboxURL.path) {
             FileManager.default.createFile(atPath: TwigPaths.inboxURL.path, contents: nil)
@@ -131,11 +155,25 @@ final class AppState {
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: .write, queue: .main)
         source.setEventHandler { [weak self] in
-            _Concurrency.Task { @MainActor in self?.importInbox() }
+            _Concurrency.Task { @MainActor in self?.handleInboxWrite() }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         inboxWatcher = source
+    }
+
+    /// 收件箱写入事件：导入 → 重建监视 → 补漏，循环到收件箱为空。
+    /// 导入会把 inbox 原子 rename 成 processing 文件处理掉（丢数据窗口修复），
+    /// 之后 inbox 由 CLI 重建——inode 已换，旧 fd 的 O_EVTONLY 监视永远不再触发，
+    /// 所以每轮导入后必须 re-arm；re-arm 间隙 CLI 又写入的，靠文件大小检查兜底再导一轮。
+    private func handleInboxWrite() {
+        for _ in 0..<8 {
+            importInbox()
+            watchInbox()
+            let size = (try? FileManager.default
+                .attributesOfItem(atPath: TwigPaths.inboxURL.path)[.size] as? Int) ?? 0
+            if size == 0 { return }
+        }
     }
 
     private func handleEngineEvent(_ event: EngineEvent) {

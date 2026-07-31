@@ -41,10 +41,26 @@ struct CollapsedBarView: View {
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
             Spacer(minLength: 8)
-            Text(timerText)
-                .font(.system(size: 13, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(Color(hex: "#D97757") ?? .orange)
+            if appState.pendingCompletionCheck {
+                // 番茄结束后的"任务完成了吗？"：横条上直接确认
+                HStack(spacing: 8) {
+                    Button("✓ 完成") {
+                        appState.timerStore.dismissCompletionCheck(markTaskDone: true)
+                        appState.exportSnapshot()
+                    }
+                    Button("↻ 继续") {
+                        appState.timerStore.dismissCompletionCheck(markTaskDone: false)
+                    }
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else {
+                Text(timerText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color(hex: "#D97757") ?? .orange)
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -61,7 +77,7 @@ struct CollapsedBarView: View {
     }
 
     private var timerText: String {
-        switch appState.timerStore.engine.state {
+        switch appState.engineState {
         case .idle: return "开始"
         case .focusing(let startedAt, let plannedEnd, _):
             let seconds: Int

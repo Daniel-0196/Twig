@@ -48,10 +48,42 @@ final class BranchLayoutTests: XCTestCase {
         let anchor = CGPoint(x: 0, y: 200)
         let result = BranchLayout.compute(projects: makeProjects(), anchor: anchor)
         XCTAssertFalse(result.edges.isEmpty)
-        XCTAssertTrue(result.edges.contains { $0.from == anchor })
+        XCTAssertTrue(result.edges.contains { $0.from == result.anchor })
         // 每条边的终点都落在某个节点中心
         for edge in result.edges {
-            XCTAssertTrue(result.nodes.contains { $0.center == edge.to } || edge.to == anchor)
+            XCTAssertTrue(result.nodes.contains { $0.center == edge.to } || edge.to == result.anchor)
+        }
+    }
+
+    /// #2 回归：四方向 × 归一化后，所有节点中心必须落在 [0, contentSize] 内。
+    /// 旧实现 .left 交叉轴向上（y 全负）、.down 目标 ≥4 时 x 出左界、.right 宽度超 panel。
+    func testAllDirectionsNodesStayInsideContentBounds() {
+        // 单项目 5 个目标：交叉轴排得最长，专门复现 .down 出左界
+        let p = Project(name: "渲染", colorHint: "#D97757")
+        p.goals = (0..<5).map { i in
+            let g = Goal(title: "目标\(i)", horizon: .short,
+                         targetDate: Date().addingTimeInterval(TimeInterval((i + 1) * 86400)),
+                         sortOrder: Double(1024 * (i + 1)))
+            g.project = p
+            return g
+        }
+        let projects = makeProjects() + [p]
+
+        for direction in BranchDirection.allCases {
+            var tuning = BranchTuning()
+            tuning.direction = direction
+            let result = BranchLayout.compute(projects: projects,
+                                              anchor: CGPoint(x: 190, y: 32),
+                                              tuning: tuning)
+            XCTAssertFalse(result.nodes.isEmpty)
+            for node in result.nodes {
+                XCTAssertGreaterThanOrEqual(node.center.x, 0, "\(direction): \(node.title) x 出左界")
+                XCTAssertGreaterThanOrEqual(node.center.y, 0, "\(direction): \(node.title) y 出上界")
+                XCTAssertLessThanOrEqual(node.center.x, result.contentSize.width,
+                                         "\(direction): \(node.title) x 出右界")
+                XCTAssertLessThanOrEqual(node.center.y, result.contentSize.height,
+                                         "\(direction): \(node.title) y 出下界")
+            }
         }
     }
 
@@ -59,22 +91,23 @@ final class BranchLayoutTests: XCTestCase {
         let anchor = CGPoint(x: 400, y: 300)
         var tuning = BranchTuning()
 
+        // 布局结果做了 min-corner 归一化，方向断言要与归一化后的 result.anchor 比
         tuning.direction = .right
         let right = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
-        XCTAssertTrue(right.nodes.allSatisfy { $0.center.x > anchor.x })
+        XCTAssertTrue(right.nodes.allSatisfy { $0.center.x > right.anchor.x })
 
         tuning.direction = .left
         let left = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
-        XCTAssertTrue(left.nodes.allSatisfy { $0.center.x < anchor.x })
+        XCTAssertTrue(left.nodes.allSatisfy { $0.center.x < left.anchor.x })
 
         tuning.direction = .down
         let down = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
-        XCTAssertTrue(down.nodes.allSatisfy { $0.center.y > anchor.y })
+        XCTAssertTrue(down.nodes.allSatisfy { $0.center.y > down.anchor.y })
         XCTAssertGreaterThan(down.contentSize.height, down.contentSize.width - 400)  // 纵向布局更高
 
         tuning.direction = .up
         let up = BranchLayout.compute(projects: makeProjects(), anchor: anchor, tuning: tuning)
-        XCTAssertTrue(up.nodes.allSatisfy { $0.center.y < anchor.y })
+        XCTAssertTrue(up.nodes.allSatisfy { $0.center.y < up.anchor.y })
     }
 
     func testStableIDSameGoalSameNodeID() {

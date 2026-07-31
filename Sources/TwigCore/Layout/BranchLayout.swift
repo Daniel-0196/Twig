@@ -66,12 +66,17 @@ public struct BranchLayoutResult: Equatable {
     public var edges: [BranchEdge]
     public var contentSize: CGSize
     public var direction: BranchDirection
+    /// 归一化后的锚点（枝干起点）。布局输出整体做了 min-corner 平移，
+    /// 锚点不再是传入值，所有"相对锚点"的判断都要用它。
+    public var anchor: CGPoint
 
-    public init(nodes: [BranchNode], edges: [BranchEdge], contentSize: CGSize, direction: BranchDirection) {
+    public init(nodes: [BranchNode], edges: [BranchEdge], contentSize: CGSize,
+                direction: BranchDirection, anchor: CGPoint) {
         self.nodes = nodes
         self.edges = edges
         self.contentSize = contentSize
         self.direction = direction
+        self.anchor = anchor
     }
 }
 
@@ -136,23 +141,34 @@ public enum BranchLayout {
             }
         }
 
-        // contentSize = 从 anchor 出发沿主轴/交叉轴的包围盒（含留白）
-        var maxMain: CGFloat = 0, minCross: CGFloat = 0, maxCross: CGFloat = 0
-        for node in nodes {
-            let dx = node.center.x - anchor.x
-            let dy = node.center.y - anchor.y
-            maxMain = max(maxMain, dx * main.x + dy * main.y)
-            let c = dx * cross.x + dy * cross.y
-            minCross = min(minCross, c)
-            maxCross = max(maxCross, c)
+        // contentSize/坐标归一化：按锚点+节点+边控制点的实际包围盒做 min-corner 平移。
+        // .left/.up 主轴伸向负方向、.down 交叉轴伸向 x 负方向，不平移节点会渲到窗口外；
+        // 统一在这里归一化，保证四方向所有节点中心都落在 [0, contentSize] 内。
+        let pad: CGFloat = 48
+        var minX = anchor.x, minY = anchor.y, maxX = anchor.x, maxY = anchor.y
+        func absorb(_ p: CGPoint) {
+            minX = min(minX, p.x); minY = min(minY, p.y)
+            maxX = max(maxX, p.x); maxY = max(maxY, p.y)
         }
-        let crossSpan = maxCross - minCross
-        let size = CGSize(
-            width: abs(main.x) * (maxMain + 120) + abs(cross.x) * (crossSpan + 96),
-            height: abs(main.y) * (maxMain + 120) + abs(cross.y) * (crossSpan + 96)
-        )
-        return BranchLayoutResult(nodes: nodes, edges: edges,
-                                  contentSize: size, direction: tuning.direction)
+        for node in nodes { absorb(node.center) }
+        for edge in edges {
+            absorb(edge.from); absorb(edge.to)
+            absorb(edge.c1); absorb(edge.c2)
+        }
+        let tx = pad - minX, ty = pad - minY
+        for i in nodes.indices {
+            nodes[i].center = CGPoint(x: nodes[i].center.x + tx, y: nodes[i].center.y + ty)
+        }
+        for i in edges.indices {
+            edges[i].from = CGPoint(x: edges[i].from.x + tx, y: edges[i].from.y + ty)
+            edges[i].to = CGPoint(x: edges[i].to.x + tx, y: edges[i].to.y + ty)
+            edges[i].c1 = CGPoint(x: edges[i].c1.x + tx, y: edges[i].c1.y + ty)
+            edges[i].c2 = CGPoint(x: edges[i].c2.x + tx, y: edges[i].c2.y + ty)
+        }
+        let size = CGSize(width: maxX - minX + pad * 2, height: maxY - minY + pad * 2)
+        return BranchLayoutResult(nodes: nodes, edges: edges, contentSize: size,
+                                  direction: tuning.direction,
+                                  anchor: CGPoint(x: anchor.x + tx, y: anchor.y + ty))
     }
 
     /// 同一 goal 多次布局要拿到同一个 id，否则 SwiftUI 动画会跳。

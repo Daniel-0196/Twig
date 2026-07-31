@@ -19,9 +19,7 @@ struct BranchView: View {
             anchor: anchor,
             tuning: tuning
         )
-        // 左/上方向时布局坐标为负向，整体平移进容器正坐标系
-        let tx: CGFloat = layout.direction == .left ? layout.contentSize.width : 0
-        let ty: CGFloat = layout.direction == .up ? layout.contentSize.height : 0
+        // 布局输出已按包围盒归一化（节点/边/锚点全部落在 [0, contentSize] 内），直接画
         ZStack(alignment: .topLeading) {
             Group {
                 Canvas { ctx, _ in
@@ -55,7 +53,6 @@ struct BranchView: View {
                         )
                 }
             }
-            .offset(x: tx, y: ty)
         }
         .frame(
             width: max(560, layout.contentSize.width),

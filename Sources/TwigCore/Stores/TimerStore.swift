@@ -7,6 +7,8 @@ public final class TimerStore {
     public private(set) var activeTask: Task?
     public private(set) var pendingCompletionCheck = false
     public var onEvent: ((EngineEvent) -> Void)?
+    /// 引擎状态/待确认标记变化后回调（AppState 用它同步 @Observable 镜像，菜单/横条才能刷新）
+    public var onStateChange: (() -> Void)?
 
     public let container: ModelContainer
     private var ctx: ModelContext { container.mainContext }
@@ -22,7 +24,11 @@ public final class TimerStore {
     }
 
     public func start(task: Task?, mode: TimerMode) {
-        if let stale = activeEntry {   // 保险：旧段直接丢弃
+        if case .focusing = engine.state {
+            // 进行中的计时不能被静默丢弃：先正常停止（保留旧段）再开始新段
+            stop(discard: false)
+        } else if let stale = activeEntry {
+            // 兜底：引擎不在专注中却残留未闭合 entry（异常状态），清掉
             ctx.delete(stale)
             activeEntry = nil
         }
@@ -33,6 +39,7 @@ public final class TimerStore {
         ctx.insert(entry)
         activeEntry = entry
         try? ctx.save()
+        onStateChange?()
     }
 
     public func tick() {
@@ -52,6 +59,7 @@ public final class TimerStore {
         activeTask = nil
         try? ctx.save()
         onEvent?(event)
+        onStateChange?()
     }
 
     public func finishFocus() {
@@ -64,6 +72,7 @@ public final class TimerStore {
         closeActiveEntry()
         try? ctx.save()
         onEvent?(event)
+        onStateChange?()
     }
 
     public func heartbeat() {
@@ -81,6 +90,7 @@ public final class TimerStore {
         if case .focusing = engine.state {} else { activeTask = nil }
         pendingCompletionCheck = false
         try? ctx.save()
+        onStateChange?()
     }
 
     private func handle(_ event: EngineEvent) {
@@ -100,6 +110,7 @@ public final class TimerStore {
         }
         try? ctx.save()
         onEvent?(event)
+        onStateChange?()
     }
 
     private func closeActiveEntry() {

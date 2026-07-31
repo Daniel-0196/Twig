@@ -46,14 +46,20 @@ struct WidgetView: View {
                 case .collapsed: controller.resize(toHeight: barHeight)
                 case .peeked: controller.resize(toHeight: barHeight + 220)
                 case .expanded:
-                    controller.resize(toHeight: barHeight + appState.branchContentSize.height)
+                    controller.resize(toWidth: expandedWidth,
+                                      height: barHeight + appState.branchContentSize.height)
                 }
             }
             .onChange(of: appState.branchContentSize) { _, size in
                 if appState.widgetState == .expanded {
-                    controller.resize(toHeight: barHeight + size.height)
+                    controller.resize(toWidth: expandedWidth, height: barHeight + size.height)
                 }
             }
         }
+    }
+
+    /// 展开态窗口宽度：至少 560（横条宽度），枝干内容更宽时跟着放宽，避免裁切
+    private var expandedWidth: CGFloat {
+        max(560, appState.branchContentSize.width)
     }
 }

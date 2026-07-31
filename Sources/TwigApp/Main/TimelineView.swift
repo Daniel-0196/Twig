@@ -62,7 +62,7 @@ struct TimelineView: View {
             }
             .padding(10)
         }
-        .task(id: project.persistentModelID) { loadCommits() }
+        .task(id: project.persistentModelID) { await loadCommits() }
     }
 
     private func goals(for horizon: Horizon) -> [Goal] {
@@ -82,17 +82,27 @@ struct TimelineView: View {
         if panel.runModal() == .OK, let url = panel.url {
             project.repoPath = url.path
             try? appState.container.mainContext.save()
-            loadCommits()
+            _Concurrency.Task { await loadCommits() }
         }
     }
 
-    private func loadCommits() {
+    private func loadCommits() async {
         guard let path = project.repoPath else { return }
-        do {
-            commits = try GitReader().log(repoPath: path,
-                                          since: Date().addingTimeInterval(-14 * 86400))
+        // GitReader 同步跑子进程（最坏卡 timeout 秒），挪到后台线程；
+        // 只把 repoPath 字符串传进去，不碰 MainActor 隔离的 @Model
+        let result: Result<[GitCommit], any Error> = await _Concurrency.Task.detached {
+            do {
+                return .success(try GitReader().log(
+                    repoPath: path, since: Date().addingTimeInterval(-14 * 86400)))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        switch result {
+        case .success(let loaded):
+            commits = loaded
             repoLost = false
-        } catch {
+        case .failure:
             repoLost = true
             commits = []
         }
