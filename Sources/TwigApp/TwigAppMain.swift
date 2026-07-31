@@ -32,6 +32,18 @@ struct TwigAppMain: App {
         .defaultLaunchBehavior(.suppressed)
 
         MenuBarExtra("Twig", systemImage: "leaf") {
+            switch appState.timerStore.engine.state {
+            case .idle:
+                Button("开始番茄钟") { appState.timerStore.start(task: nil, mode: .pomodoro) }
+                Button("开始正计时") { appState.timerStore.start(task: nil, mode: .stopwatch) }
+            case .focusing:
+                Button("提前完成") { appState.timerStore.finishFocus() }
+                Button("停止并保留") { appState.timerStore.stop(discard: false) }
+                Button("停止并丢弃") { appState.timerStore.stop(discard: true) }
+            case .onBreak:
+                Button("结束休息") { appState.timerStore.endBreak() }
+            }
+            Divider()
             Button("打开主窗口") { openMain() }
             Divider()
             Button("退出 Twig") { NSApp.terminate(nil) }
