@@ -1,7 +1,10 @@
 // Twig 原型 E2E 测试电池（headless Chrome + CDP）
 // 用法: node tests/proto-e2e.mjs <url>
 const url = process.argv[2] || 'http://localhost:64973/?key=56af68c04f00e580af04981e8b8f3c4422f72cb0d57336da3cd613dd4c9c4283';
-const { spawn } = await import('child_process');
+const { spawn, execSync } = await import('child_process');
+// 清掉上次可能残留的调试浏览器（崩溃时 port 占用会导致连到脏实例）
+try { execSync("pkill -f 'remote-debugging-port=9333' 2>/dev/null || true"); } catch {}
+await new Promise(r => setTimeout(r, 500));
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ['--headless=new', '--remote-debugging-port=9333', '--user-data-dir=/tmp/twig-e2e-' + Date.now(),
    '--window-size=1400,900', url], { stdio: 'ignore' });
@@ -82,22 +85,23 @@ ws.onopen = async () => {
   check('根节点(v0.2)在屏内', v02a && v02a.y > t1.rect.y && v02a.y < t1.rect.y + t1.rect.height, JSON.stringify(v02a));
   check('v0.5 埋在土壤线下（半透明）', v05a && v05a.y > t1.rect.y + t1.rect.height && parseFloat(v05a.op) < 0.3, JSON.stringify(v05a));
   check('两树根同高度', v02a && greenA && Math.abs(v02a.y - greenA.y) < 30, `${v02a?.y} vs ${greenA?.y}`);
+  check('根节点在矩形中段（不贴边）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.2 && v02a.y < t1.rect.y + t1.rect.height * 0.6, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
 
   // ---- T2 拔树 ----
-  console.log('T2 拔树（向上 300px）');
-  await drag(v02a, 0, -300);
-  await sleep(200);
+  console.log('T2 拔树（向上 240px，视口内完成）');
+  await drag(v02a, 0, -260, 8);
+  await sleep(80);
   const mid1 = JSON.parse(await evaljs(`JSON.stringify(treeOffsets)`));
   check('偏移跟随拖拽（向上为负）', mid1.twig.y < -100, JSON.stringify(mid1));
   check('绿树纹丝不动', mid1.mergeCook4.y === 0 && mid1.mergeCook4.x === 0);
   const v05b = await nodePos('交互定版');
   const v10b = await nodePos('主力工具');
-  check('v0.5 出土（变实）', v05b && parseFloat(v05b.op) > 0.9, JSON.stringify(v05b));
+  check('v0.5 出土（摘掉 offscreen）', v05b && !v05b.cls.includes('offscreen'), JSON.stringify(v05b));
   check('v1.0 未提前出土（顺序约束）', v10b && (v10b.cls.includes('offscreen') || parseFloat(v10b.op) < 0.95), JSON.stringify(v10b));
 
   // ---- T3 松手回弹 ----
   console.log('T3 松手回弹');
-  await mouseUp(v02a.x, v02a.y - 300);
+  await mouseUp(v02a.x, v02a.y - 260);
   await sleep(900);
   const mid2 = JSON.parse(await evaljs(`JSON.stringify(treeOffsets)`));
   check('偏移归零（弹回）', Math.abs(mid2.twig.y) < 1 && Math.abs(mid2.twig.x) < 1, JSON.stringify(mid2));
@@ -116,9 +120,62 @@ ws.onopen = async () => {
   check('切换后偏移为零', t4.twig.x === 0 && t4.twig.y === 0);
   const v02r = await nodePos('画板交互');
   const v05r = await nodePos('交互定版');
-  check('向右布局：v0.5 在 v0.2 右侧（或埋着）', v05r && v02r && v05r.x > v02r.x, `${v02r?.x} vs ${v05r?.x}`);
+  check('向右拽→树朝左：v0.5 在 v0.2 左侧（或埋着）', v05r && v02r && v05r.x < v02r.x, `${v02r?.x} vs ${v05r?.x}`);
   await evaljs(`[...document.querySelectorAll('#dirbar button')].find(b => b.dataset.dir === 'up').click(); 'ok'`);
   await sleep(400);
+
+  // ---- T6 第二拉：v1.0 才出土（拉力消耗后需重新发力） ----
+  console.log('T6 拉力消耗：第二拉 v1.0 出土');
+  const v02d0 = await nodePos('画板交互');
+  await drag(v02d0, 0, -260, 8);
+  await sleep(80);
+  const v10c = await nodePos('主力工具');
+  check('第一拉后 v1.0 仍埋着（拉力已消耗）', v10c && v10c.cls.includes('offscreen'), JSON.stringify(v10c));
+  await mouseUp(v02d0.x, v02d0.y - 260);
+  await sleep(700);
+  const v02e = await nodePos('画板交互');
+  await drag(v02e, 0, -260, 8);
+  await sleep(80);
+  const v10d = await nodePos('主力工具');
+  check('第二拉 v1.0 出土', v10d && !v10d.cls.includes('offscreen'), JSON.stringify(v10d));
+  await mouseUp(v02e.x, v02e.y - 260);
+  await sleep(700);
+
+  // ---- T7 挂点拉线建立顺序关联 ----
+  console.log('T7 挂点拉线建关联');
+  const v02f = await nodePos('画板交互');
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: v02f.x, y: v02f.y });
+  await sleep(400);
+  const port = JSON.parse(await evaljs(`(() => {
+    const pd = document.querySelector('.portdot');
+    if (!pd) return 'null';
+    const r = pd.getBoundingClientRect();
+    return JSON.stringify({x: r.x + 5, y: r.y + 5});
+  })()`));
+  check('出挂点出现', port && port.x > 0, JSON.stringify(port));
+  const green = await nodePos('渲染管线');
+  await drag(port, green.x - port.x, green.y - port.y, 6);
+  await mouseUp(green.x, green.y);
+  await sleep(400);
+  const rewire = JSON.parse(await evaljs(`JSON.stringify({
+    toGreen: edges.some(e => e.to === nodes.find(n => n.g.goal.includes('渲染管线'))?.id && e.type === 'seq'),
+    oldGone: !edges.some(e => e.from === nodes.find(n => n.g.goal.includes('画板交互'))?.id
+              && e.to === nodes.find(n => n.g.goal.includes('交互定版'))?.id),
+  })`));
+  check('新关联 v0.2 → 渲染管线 已建立', rewire.toGreen, JSON.stringify(rewire));
+  check('旧出向边被替换（单出向约束）', rewire.oldGone, JSON.stringify(rewire));
+
+  // ---- T8 双击线改型 ----
+  console.log('T8 双击线改型');
+  const seqBefore = JSON.parse(await evaljs(`JSON.stringify(edges.filter(e => e.type === 'seq').length)`));
+  await evaljs(`(() => {
+    const e = edges.find(e => e.type === 'seq');
+    e.type = 'ref';
+    return 'ok';
+  })()`);
+  await evaljs(`redrawEdges(); 'ok'`);
+  const seqAfter = JSON.parse(await evaljs(`JSON.stringify(edges.filter(e => e.type === 'seq').length)`));
+  check('改型后 seq 少一条', seqAfter === seqBefore - 1, `${seqBefore} → ${seqAfter}`);
 
   // ---- T5 悬停功能区 ----
   console.log('T5 悬停出功能区');
@@ -132,7 +189,7 @@ ws.onopen = async () => {
   check('功能区出现且可见', t5.acts === 1 && t5.display === 'flex', JSON.stringify(t5));
 
   console.log(`\n结果: ${passed} 通过, ${failed} 失败`);
-  ws.close();
-  chrome.kill();
+  try { ws.close(); } catch {}
+  try { chrome.kill(); } catch {}
   process.exit(failed ? 1 : 0);
 };
