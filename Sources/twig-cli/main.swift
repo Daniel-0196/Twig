@@ -3,9 +3,9 @@ import TwigCore
 
 do {
     switch try CLICommandParser.parse(Array(CommandLine.arguments.dropFirst())) {
-    case .add(let title, let project, let goal, let due, let estimate):
+    case .add(let title, let project, let goal, let horizon, let due, let estimate):
         try FileManager.default.createDirectory(at: TwigPaths.supportDir, withIntermediateDirectories: true)
-        let item = InboxItem(title: title, project: project, goal: goal,
+        let item = InboxItem(title: title, project: project, goal: goal, goalHorizon: horizon,
                              due: due, estimateMin: estimate, source: "cli")
         let line = try InboxParser.encode(item) + "\n"
         if FileManager.default.fileExists(atPath: TwigPaths.inboxURL.path),

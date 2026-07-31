@@ -52,7 +52,8 @@ public final class InboxImporter {
                 continue
             }
             let project = store.findOrCreateProject(named: item.project)
-            let goal = store.findOrCreateGoal(in: project, title: item.goal ?? "收集箱")
+            let horizon = item.goalHorizon.flatMap { Horizon(rawValue: $0) } ?? .short
+            let goal = store.findOrCreateGoal(in: project, title: item.goal ?? "收集箱", horizon: horizon)
             store.addTask(to: goal, title: item.title, estimateMin: item.estimateMin, dueDate: item.due)
             report.imported += 1
         }

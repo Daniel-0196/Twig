@@ -72,9 +72,9 @@ public final class TaskStore {
         return addProject(name: name, colorHint: Self.defaultColor)
     }
 
-    public func findOrCreateGoal(in project: Project, title: String) -> Goal {
+    public func findOrCreateGoal(in project: Project, title: String, horizon: Horizon = .short) -> Goal {
         if let existing = project.goals.first(where: { $0.title == title }) { return existing }
-        return addGoal(to: project, title: title, horizon: .short, targetDate: nil)
+        return addGoal(to: project, title: title, horizon: horizon, targetDate: nil)
     }
 
     private static let defaultColor = "#D97757"

@@ -114,4 +114,19 @@ final class InboxTests: XCTestCase {
         XCTAssertEqual(report.badLines, ["坏行"])
         XCTAssertTrue(try String(contentsOf: bad, encoding: .utf8).contains("坏行"))
     }
+
+    func testImportCreatesGoalWithHorizon() throws {
+        let store = TaskStore(container: try TwigStore.makeContainer(inMemory: true))
+        let inbox = tempURL("inbox.jsonl")
+        let bad = tempURL("bad.jsonl")
+        let line = try makeLine([
+            "id": UUID().uuidString, "title": "交互定稿", "project": "twig",
+            "goal": "v0.5 交互定版", "goalHorizon": "mid",
+            "source": "cli", "createdAt": "2026-07-31T10:00:00Z",
+        ])
+        try line.write(to: inbox, atomically: true, encoding: .utf8)
+        _ = try InboxImporter(store: store).importInbox(at: inbox, badLinesURL: bad)
+        let goal = store.allProjects().first?.goals.first { $0.title == "v0.5 交互定版" }
+        XCTAssertEqual(goal?.horizon, .mid)
+    }
 }

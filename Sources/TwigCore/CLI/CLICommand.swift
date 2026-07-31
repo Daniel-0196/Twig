@@ -1,7 +1,7 @@
 import Foundation
 
 public enum CLICommand: Equatable {
-    case add(title: String, project: String, goal: String?, due: Date?, estimate: Int?)
+    case add(title: String, project: String, goal: String?, horizon: String?, due: Date?, estimate: Int?)
     case list(project: String?)
     case help
 }
@@ -14,7 +14,7 @@ public struct CLIUsageError: Error, Equatable, CustomStringConvertible {
 public enum CLICommandParser {
     public static let usage = """
     twig — Twig 任务收件箱
-      twig add "标题" --project 项目名 [--goal 目标名] [--due YYYY-MM-DD] [--estimate 分钟]
+      twig add "标题" --project 项目名 [--goal 目标名] [--horizon short|mid|long] [--due YYYY-MM-DD] [--estimate 分钟]
       twig list [--project 项目名]
     """
 
@@ -44,6 +44,7 @@ public enum CLICommandParser {
         }
         var project: String?
         var goal: String?
+        var horizon: String?
         var due: Date?
         var estimate: Int?
         var i = 1
@@ -59,6 +60,11 @@ public enum CLICommandParser {
             switch flag {
             case "--project": project = value
             case "--goal": goal = value
+            case "--horizon":
+                guard ["short", "mid", "long"].contains(value) else {
+                    throw CLIUsageError("--horizon 应为 short|mid|long，收到「\(value)」")
+                }
+                horizon = value
             case "--due":
                 guard let d = dayFormatter.date(from: value) else {
                     throw CLIUsageError("--due 日期格式应为 YYYY-MM-DD，收到「\(value)」")
@@ -75,6 +81,6 @@ public enum CLICommandParser {
             i += 2
         }
         guard let project else { throw CLIUsageError("add 必须带 --project\n" + usage) }
-        return .add(title: title, project: project, goal: goal, due: due, estimate: estimate)
+        return .add(title: title, project: project, goal: goal, horizon: horizon, due: due, estimate: estimate)
     }
 }
