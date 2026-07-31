@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import TwigCore
 
 /// 枝干完全展开（画板态）：贝塞尔枝干从锚点生长 + 圆形玻璃节点。
@@ -203,14 +204,38 @@ private struct GoalNodeCircle: View {
     }
 }
 
-/// 悬停节点浮出的玻璃小面板：未完成任务（≤5 条，可点击勾选）+ 添加任务 + 可拖动提示
+/// 画板风格的圆形小按钮（节点操作入口）
+private struct NodeActionButton: View {
+    let systemImage: String
+    let color: Color
+    let helpText: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+    }
+}
+
+/// 悬停节点浮出的玻璃小面板：未完成任务（≤5 条，可点击勾选/悬停出 ▶ 专注）+ 圆形操作按钮
 private struct NodeHoverPanel: View {
     let appState: AppState
     let node: BranchNode
 
     @State private var isAdding = false
     @State private var draft = ""
+    @State private var hoveredTaskID: PersistentIdentifier?
     @FocusState private var inputFocused: Bool
+
+    private var color: Color { Color(hex: node.colorHex) ?? .gray }
 
     private var openTasks: [TwigCore.Task] {
         appState.openTasks(forNodeID: node.id)
@@ -220,41 +245,48 @@ private struct NodeHoverPanel: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(Color(hex: node.colorHex) ?? .gray)
+                    .fill(color)
                     .frame(width: 8, height: 8)
                 Text(node.title)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                Text("⇄")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .help("沿枝干拖动节点可调整排期")
-                Button {
+                NodeActionButton(systemImage: "play.fill", color: color, helpText: "开始专注") {
+                    appState.startFocus(onNodeID: node.id)
+                }
+                NodeActionButton(systemImage: "plus", color: color, helpText: "添加任务") {
                     isAdding = true
                     inputFocused = true
-                } label: {
-                    Text("＋")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help("添加任务")
             }
             ForEach(openTasks, id: \.persistentModelID) { task in
                 HStack(spacing: 8) {
                     Image(systemName: "circle")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(hex: node.colorHex) ?? .gray)
+                        .foregroundStyle(color)
                     Text(task.title)
                         .font(.system(size: 12))
                         .lineLimit(1)
                     Spacer(minLength: 4)
+                    if hoveredTaskID == task.persistentModelID {
+                        Button {
+                            appState.startFocus(on: task)
+                        } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(color)
+                        }
+                        .buttonStyle(.plain)
+                        .help("专注此任务")
+                    }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
                     appState.taskStore.toggleTask(task)
                     appState.exportSnapshot()
+                }
+                .onHover { inside in
+                    hoveredTaskID = inside ? task.persistentModelID : nil
                 }
             }
             if openTasks.isEmpty && !isAdding {
@@ -273,6 +305,9 @@ private struct NodeHoverPanel: View {
                         isAdding = false
                     }
             }
+            Text("拖动节点可改排期")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
         }
         .padding(12)
         .frame(width: 230, alignment: .leading)

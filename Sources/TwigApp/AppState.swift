@@ -153,6 +153,19 @@ final class AppState {
         exportSnapshot()
     }
 
+    /// 枝干面板用：开始专注该目标（取第一个未完成任务；没有则不计名计时）
+    func startFocus(onNodeID nodeID: UUID) {
+        let task = openTasks(forNodeID: nodeID, limit: 1).first
+        timerStore.start(task: task, mode: .pomodoro)
+        widgetState = .collapsed
+    }
+
+    /// 枝干面板用：开始专注具体任务
+    func startFocus(on task: TwigCore.Task) {
+        timerStore.start(task: task, mode: .pomodoro)
+        widgetState = .collapsed
+    }
+
     // MARK: - 私有
 
     private func recoverUnclosedEntries() {
