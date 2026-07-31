@@ -126,6 +126,33 @@ final class AppState {
         }
     }
 
+    /// 由枝干节点 ID 反查 Goal（nodeID 由 BranchLayout.stableID 派生，与 moveGoal 同一套反查）
+    func goal(forNodeID nodeID: UUID) -> Goal? {
+        for project in taskStore.allProjects() {
+            for goal in project.goals where BranchLayout.stableID(for: goal) == nodeID {
+                return goal
+            }
+        }
+        return nil
+    }
+
+    /// 枝干悬停面板用：该目标下未完成任务（按排序，最多 limit 条）
+    func openTasks(forNodeID nodeID: UUID, limit: Int = 5) -> [TwigCore.Task] {
+        guard let goal = goal(forNodeID: nodeID) else { return [] }
+        return goal.tasks
+            .filter { !$0.isDone }
+            .sorted { $0.sortOrder < $1.sortOrder }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    /// 枝干悬停面板用：给节点对应的目标加任务
+    func addTask(toNodeID nodeID: UUID, title: String) {
+        guard let goal = goal(forNodeID: nodeID) else { return }
+        taskStore.addTask(to: goal, title: title)
+        exportSnapshot()
+    }
+
     // MARK: - 私有
 
     private func recoverUnclosedEntries() {

@@ -19,17 +19,14 @@ struct WidgetView: View {
                     EmptyView()
                 case .peeked:
                     PeekListView(appState: appState)
-                        .onHover { inside in
-                            if !inside { appState.widgetState = .collapsed }
-                        }
                 case .expanded:
                     BranchView(appState: appState)
                 }
             }
             .contentShape(Rectangle())
             .onHover { inside in
-                // 兜底：指针离开整个悬浮窗区域（不经过清单）也要收回 peek
-                if !inside, appState.widgetState == .peeked {
+                // 兜底：指针完全离开悬浮窗区域就收回（peek / 画板态都一样）
+                if !inside, appState.widgetState != .collapsed {
                     appState.widgetState = .collapsed
                 }
             }
