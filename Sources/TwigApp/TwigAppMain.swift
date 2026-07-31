@@ -49,15 +49,7 @@ struct TwigAppMain: App {
             Divider()
             Button("退出 Twig") { NSApp.terminate(nil) }
         } label: {
-            // 与 app icon 同母题的菜单栏模板图标（细线串三点），失败时退回 SF Symbol
-            if let url = Bundle.module.url(forResource: "menubar-icon", withExtension: "png"),
-               let nsImage = NSImage(contentsOf: url) {
-                nsImage.isTemplate = true
-                nsImage.size = NSSize(width: 18, height: 18)
-                Image(nsImage: nsImage)
-            } else {
-                Image(systemName: "leaf")
-            }
+            MenuBarIcon()
         }
     }
 
@@ -66,5 +58,24 @@ struct TwigAppMain: App {
     private func openMain() {
         openWindow(id: "main")
         NSApp.activate()
+    }
+}
+
+/// 菜单栏模板图标：与 app icon 同母题（细线串三点），加载失败退回 SF Symbol
+private struct MenuBarIcon: View {
+    private let image: NSImage? = {
+        guard let url = Bundle.module.url(forResource: "menubar-icon", withExtension: "png"),
+              let img = NSImage(contentsOf: url) else { return nil }
+        img.isTemplate = true
+        img.size = NSSize(width: 18, height: 18)
+        return img
+    }()
+
+    var body: some View {
+        if let image {
+            Image(nsImage: image)
+        } else {
+            Image(systemName: "leaf")
+        }
     }
 }
