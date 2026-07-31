@@ -62,7 +62,7 @@ struct TimelineView: View {
             }
             .padding(10)
         }
-        .onAppear(perform: loadCommits)
+        .task(id: project.persistentModelID) { loadCommits() }
     }
 
     private func goals(for horizon: Horizon) -> [Goal] {
