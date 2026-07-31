@@ -77,7 +77,12 @@ public final class PomodoroEngine {
     }
 
     private func completeFocus(endedAt: Date) -> EngineEvent {
-        guard case .focusing(let startedAt, _, _) = state else { return .stopped(recorded: nil) }
+        guard case .focusing(let startedAt, _, let mode) = state else { return .stopped(recorded: nil) }
+        // 只有标准番茄钟计入番茄数并触发休息（用户裁决）；stopwatch/countdown 直接回 idle
+        guard mode == .pomodoro else {
+            state = .idle
+            return .focusCompleted(duration: endedAt.timeIntervalSince(startedAt))
+        }
         completedPomodoros += 1
         let isLong = completedPomodoros % config.pomodorosPerLongBreak == 0
         if config.autoStartBreak {

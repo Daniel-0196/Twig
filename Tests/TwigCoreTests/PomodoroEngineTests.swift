@@ -56,6 +56,30 @@ final class PomodoroEngineTests: XCTestCase {
         XCTAssertEqual(engine.state, .idle)
     }
 
+    func testStopwatchFinishDoesNotCountPomodoroNorBreak() {
+        let engine = makeEngine()
+        engine.startFocus(mode: .stopwatch)
+        now = now.addingTimeInterval(1800)
+        let event = engine.finishFocusEarly()
+        guard case .focusCompleted = event else {
+            return XCTFail("期望 focusCompleted，得到 \(String(describing: event))")
+        }
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(engine.completedPomodoros, 0)
+    }
+
+    func testCountdownFinishDoesNotCountPomodoroNorBreak() {
+        let engine = makeEngine()
+        engine.startFocus(mode: .countdown(minutes: 40))
+        now = now.addingTimeInterval(40 * 60)
+        let event = engine.tick()
+        guard case .focusCompleted = event else {
+            return XCTFail("期望 focusCompleted，得到 \(String(describing: event))")
+        }
+        XCTAssertEqual(engine.state, .idle)
+        XCTAssertEqual(engine.completedPomodoros, 0)
+    }
+
     func testCustomCountdown() {
         let engine = makeEngine()
         engine.startFocus(mode: .countdown(minutes: 40))
