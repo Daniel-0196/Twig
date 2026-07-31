@@ -31,7 +31,7 @@ struct TwigAppMain: App {
         }
         .defaultLaunchBehavior(.suppressed)
 
-        MenuBarExtra("Twig", systemImage: "leaf") {
+        MenuBarExtra {
             // 读 AppState 的 @Observable 镜像（engineState），而非不可观察的 engine.state
             switch appState.engineState {
             case .idle:
@@ -48,6 +48,16 @@ struct TwigAppMain: App {
             Button("打开主窗口") { openMain() }
             Divider()
             Button("退出 Twig") { NSApp.terminate(nil) }
+        } label: {
+            // 与 app icon 同母题的菜单栏模板图标（细线串三点），失败时退回 SF Symbol
+            if let url = Bundle.module.url(forResource: "menubar-icon", withExtension: "png"),
+               let nsImage = NSImage(contentsOf: url) {
+                nsImage.isTemplate = true
+                nsImage.size = NSSize(width: 18, height: 18)
+                Image(nsImage: nsImage)
+            } else {
+                Image(systemName: "leaf")
+            }
         }
     }
 

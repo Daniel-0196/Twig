@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .target(name: "TwigCore", path: "Sources/TwigCore"),
         .executableTarget(name: "twig", dependencies: ["TwigCore"], path: "Sources/twig-cli"),
-        .executableTarget(name: "TwigApp", dependencies: ["TwigCore"], path: "Sources/TwigApp"),
+        .executableTarget(name: "TwigApp", dependencies: ["TwigCore"], path: "Sources/TwigApp",
+                          resources: [.copy("Resources")]),
         .testTarget(name: "TwigCoreTests", dependencies: ["TwigCore"], path: "Tests/TwigCoreTests"),
     ]
 )
