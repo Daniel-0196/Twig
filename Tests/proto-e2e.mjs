@@ -115,6 +115,7 @@ ws.onopen = async () => {
   check('v0.2 回到初始位置', v02b && Math.abs(v02b.y - v02a.y) < 15, `${v02a.y} → ${v02b?.y}`);
   const v05c = await nodePos('交互定版');
   check('出土的 v0.5 留下', v05c && !v05c.cls.includes('offscreen'));
+  check('出土后 v0.5 在屏内（根的内侧上方）', v05c && v02b && v05c.y < v02b.y && v05c.y > t1.rect.y, `${v05c?.y} vs root ${v02b?.y} vs 顶边 ${t1.rect.y}`);
 
   // ---- T4 方向切换 ----
   console.log('T4 方向切换到向右');
