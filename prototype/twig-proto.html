@@ -6,12 +6,13 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,"PingFang SC",sans-serif; user-select:none; }
   body { background:#FAF9F5; min-height:100vh; padding:32px; color:#1F1E1D; overflow:auto; }
-  .hint { color:#A6A49E; font-size:12px; margin-bottom:14px; line-height:1.7; }
-  .hint b { color:#73726C; }
+  .hint { color:#73726C; font-size:12px; margin-bottom:14px; line-height:1.7; }
+  .hint b { color:#1F1E1D; }
   .stage { position:relative; width:calc(100vw - 64px); height:calc(100vh - 130px); min-height:540px; }
   .screen-rect { position:absolute; z-index:2;
                  border:1.5px dashed #E8E6DC; border-radius:18px;
                  background:#FFFFFF; pointer-events:none;
+                 box-shadow:0 1px 2px rgba(0,0,0,0.04);
                  transition:box-shadow .25s; }
   .screen-rect span { position:absolute; right:12px; top:6px; color:#A6A49E; font-size:11px; letter-spacing:2px; }
 
@@ -43,9 +44,9 @@
   body.pulling .node { transition:none; }   /* 拖拽/回弹期间逐帧驱动，不用 CSS 过渡 */
   body.pulling .node.emerging { transition:left .45s cubic-bezier(.2,1.2,.3,1), top .45s cubic-bezier(.2,1.2,.3,1), opacity .3s; }
   .node .t { font-size:12px; font-weight:600; font-family:Georgia,"Noto Serif SC","Songti SC",serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .node .m { font-size:9.5px; color:#A6A49E; margin-top:2px; white-space:nowrap; }
+  .node .m { font-size:9.5px; color:#73726C; margin-top:2px; white-space:nowrap; }
   .node.long { border-style:dashed; border-left-style:solid; }
-  .node.offscreen { opacity:.4; filter:saturate(.6); background:rgba(237,231,218,0.65); }
+  .node.offscreen { opacity:.22; filter:saturate(.6); background:rgba(239,233,220,0.65); }
   .soil { position:absolute; z-index:1; pointer-events:none; transition:all .3s; }
   .mound { position:absolute; width:22px; height:8px; z-index:2; pointer-events:none;
            background:radial-gradient(ellipse at center, rgba(166,152,124,0.5), transparent 70%);
@@ -181,7 +182,7 @@ function fitScreen() {
   document.getElementById('peek').style.left = (RECT.x + 18) + 'px';
   document.getElementById('peek').style.top = (RECT.y + 68) + 'px';
   const soil = document.getElementById('soil');
-  soil.style.cssText = `left:0;top:0;width:${sw}px;height:${sh}px;background:linear-gradient(180deg,#EDE7DA,#E3D9C6);`;
+  soil.style.cssText = `left:0;top:0;width:${sw}px;height:${sh}px;background:linear-gradient(180deg,#EFE9DC,#E7DECB);`;
   computeDirs();   // RECT 变了，方向几何跟着重算
 }
 // axis: 主轴; soil: 土壤边界坐标; root: 根节点主轴坐标; rSign: 深层延伸; hSign: 土埋方向
@@ -930,11 +931,11 @@ function showActs(n) {
   actsEl.className = 'acts show';
   const isRoot = !edges.some(e => e.to === n.id && e.type === 'seq');
   actsEl.innerHTML = `
-    <div class="act" title="新增分支" style="color:${n.p.color}">＋</div>
-    <div class="act" title="开始番茄" style="color:${n.p.color}">▶</div>
-    <div class="act" title="删除" style="color:${n.p.color}">🗑</div>
-    <div class="act move" title="移动节点（按住拖）" style="color:${n.p.color}">✥</div>` +
-    (isRoot ? `<div class="act" title="重置这棵树（全部埋回土里）" style="color:${n.p.color}">↺</div>` : '');
+    <div class="act" title="新增分支" style="color:#7D9B76">＋</div>
+    <div class="act" title="开始番茄" style="color:#D97757">▶</div>
+    <div class="act" title="删除" style="color:#73726C">🗑</div>
+    <div class="act move" title="移动节点（按住拖）" style="color:#9ec1ea">✥</div>` +
+    (isRoot ? `<div class="act" title="重置这棵树（全部埋回土里）" style="color:#e8c37a">↺</div>` : '');
   const [a, b, c, m, r] = actsEl.children;
   if (r) r.onclick = (e) => { e.stopPropagation(); resetTree(n.p); };
   a.onclick = (e) => { e.stopPropagation(); showAddCard(n); };
