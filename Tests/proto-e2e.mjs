@@ -88,6 +88,13 @@ ws.onopen = async () => {
   const ver = await evaljs(`document.querySelector('.hint b')?.textContent`);
   check('页面带版本水印', /v\d+/.test(ver || ''), ver);
 
+  // ---- T0.5 默认方向为向下 ----
+  console.log('T0.5 默认方向');
+  const defDir = await evaljs(`direction`);
+  check('默认方向是向下', defDir === 'down', defDir);
+  await evaljs(`[...document.querySelectorAll('#dirbar button')].find(b => b.dataset.dir === 'up').click(); 'ok'`);
+  await sleep(400);
+
   // ---- T1 初始布局 ----
   console.log('T1 初始布局');
   const t1 = JSON.parse(await evaljs(`JSON.stringify({

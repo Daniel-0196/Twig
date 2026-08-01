@@ -37,7 +37,7 @@
   .canvas svg.edges { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; z-index:3; }
   .edge { fill:none; stroke-width:1.5; stroke-linecap:round; }
 
-  .node { position:absolute; padding:7px 12px;
+  .node { position:absolute; padding:11px 15px;
           background:rgba(255,255,255,0.62); backdrop-filter:blur(14px) saturate(1.25); -webkit-backdrop-filter:blur(14px) saturate(1.25);
           border:1px solid rgba(232,230,220,0.85); border-left:3px solid;
           border-radius:11px; box-shadow:0 1px 2px rgba(0,0,0,0.04);
@@ -138,15 +138,15 @@
 </head>
 <body>
 <div class="hint">
-  <b>v17 · 0801：</b>默认<b>向上拔</b> ｜ 悬停节点 → 上排 ＋ 🗑 ⇄拔树（根+↺重置）｜ 下排<b>叶子=任务</b>（点叶子开详情：▶番茄挂任务级 ✓完成 🗑）｜ 节点=阶段名+期限tag+进度条+红点任务数 ｜ 普通拖动=移位置 ｜ 右上角切方向/重置
+  <b>v18 · 0801：</b>默认<b>向上拔</b> ｜ 悬停节点 → 上排 ＋ 🗑 ⇄拔树（根+↺重置）｜ 下排<b>叶子=任务</b>（点叶子开详情：▶番茄挂任务级 ✓完成 🗑）｜ 节点=阶段名+期限tag+进度条+红点任务数 ｜ 普通拖动=移位置 ｜ 右上角切方向/重置
 </div>
 <div class="stage" id="stage">
 
   <div class="dirbar" id="dirbar">
     <button data-dir="right">向右</button>
-    <button data-dir="down">向下</button>
+    <button data-dir="down" class="on">向下</button>
     <button data-dir="left">向左</button>
-    <button data-dir="up" class="on">向上</button>
+    <button data-dir="up">向上</button>
     <button id="resetBtn" title="重置原型数据" style="border-style:dashed">重置</button>
   </div>
   <div class="bar" id="bar">
@@ -230,7 +230,7 @@ function computeDirs() {
     right: { ux: 1,  uy: 0,  axis: 'x', soil: RECT.x + RECT.w, rSign: 1,  hSign: 1 },
   });
 }
-let direction = 'up';
+let direction = 'down';
 const GAP = 190;        // 固定枝距（沿主轴）
 const CROSS_GAP = 240;  // 项目间距（交叉轴）
 
@@ -867,6 +867,7 @@ const FOLLOW = 0.4;       // 手对树的驱动强度
 function startMoveNode(e, n) {
   e.preventDefault();
   hideDetail();
+  hideActs();   // 拖动时隐藏 HUD
   moveState = { n, startX: e.clientX, startY: e.clientY, origX: n.x, origY: n.y };
   nodeEls.get(n.id)?.classList.add('moving');
 }
@@ -874,6 +875,7 @@ function startMoveNode(e, n) {
 function startPull(e, n) {
   e.preventDefault();
   hideDetail();
+  hideActs();   // 拖动时隐藏 HUD
   const o = offsetOf(n.p);
   const { comp, depths } = computeComponent(n);
   pullState = { project: n.p, startX: e.clientX, startY: e.clientY,
