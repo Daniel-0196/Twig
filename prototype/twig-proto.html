@@ -605,6 +605,9 @@ function applyTree() {
     // 且必须按拓扑顺序：seq 父节点还没出土，轮不到它
     const seqParent = edges.find(e => e.to === n.id && e.type === 'seq');
     const parentNode = seqParent ? nodes.find(nd => nd.id === seqParent.from) : null;
+    if (!n.revealed && !(pullState && pullState.component.has(n.id) && (!parentNode || parentNode.revealed))) {
+      el.style.opacity = '';   // 不在被拔的树里/松手后：回到"埋着"的 0.22
+    }
     if (!n.revealed && pullState && pullState.component.has(n.id)
         && (!parentNode || parentNode.revealed)) {
       const o = offsetOf(n.p);
@@ -681,14 +684,14 @@ function applyTree() {
 }
 
 // 茎渲染：沿贝塞尔采样分段，线宽根粗梢细、颜色渐淡，末端消融成圆点
-function drawStem(svg, pathD, color, { w0 = 3, w1 = 0.6, a0 = 0.9, a1 = 0.15, hot = false } = {}) {
+function drawStem(svg, pathD, color, { w0 = 3, w1 = 0.7, a0 = 0.95, a1 = 0.4, hot = false } = {}) {
   const ns = 'http://www.w3.org/2000/svg';
   const tmp = document.createElementNS(ns, 'path');
   tmp.setAttribute('d', pathD);
   const L = tmp.getTotalLength();
   if (!L) return;
   const N = Math.max(6, Math.min(14, Math.round(L / 18)));
-  const dim = hot ? 1 : 0.3;                 // 非高亮边整体变淡（悬停聚焦）
+  const dim = actsNode ? (hot ? 1 : 0.3) : 1;  // 只有悬停聚焦时才压暗无关边
   let prev = tmp.getPointAtLength(0);
   for (let i = 1; i <= N; i++) {
     const pt = tmp.getPointAtLength(L * i / N);
