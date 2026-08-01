@@ -91,7 +91,7 @@ ws.onopen = async () => {
   check('根节点(v0.2)在屏内', v02a && v02a.y > t1.rect.y && v02a.y < t1.rect.y + t1.rect.height, JSON.stringify(v02a));
   check('v0.5 埋在土壤线下（半透明）', v05a && v05a.y > t1.rect.y + t1.rect.height && parseFloat(v05a.op) < 0.3, JSON.stringify(v05a));
   check('两树根同高度', v02a && greenA && Math.abs(v02a.y - greenA.y) < 30, `${v02a?.y} vs ${greenA?.y}`);
-  check('向上拽：根在屏内中段偏下（40%~75%）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.4 && v02a.y < t1.rect.y + t1.rect.height * 0.75, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
+  check('向上拽：根贴底边（65%~95%）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.65 && v02a.y < t1.rect.y + t1.rect.height * 0.95, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
 
   // ---- T2 拔树 ----
   console.log('T2 拔树（向上 240px，视口内完成）');
