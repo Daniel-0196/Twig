@@ -46,6 +46,18 @@
   body.pulling .node { transition:none; }   /* 拖拽/回弹期间逐帧驱动，不用 CSS 过渡 */
   body.pulling .node.emerging { transition:left .45s cubic-bezier(.2,1.2,.3,1), top .45s cubic-bezier(.2,1.2,.3,1), opacity .3s; }
   .node .t { font-size:12px; font-weight:600; font-family:Georgia,"Noto Serif SC","Songti SC",serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node .trow { display:flex; align-items:center; gap:6px; }
+  .node .htag { flex:none; font-size:9px; padding:1.5px 6px; border-radius:7px; font-weight:500; }
+  .node .htag.short { background:rgba(217,119,87,0.12); color:#D97757; }
+  .node .htag.mid { background:rgba(158,193,234,0.18); color:#6b8fc4; }
+  .node .htag.long { background:rgba(166,164,158,0.15); color:#A6A49E; }
+  .node .prow { display:flex; align-items:center; gap:5px; margin-top:5px; }
+  .node .prog { flex:1; height:3px; background:rgba(0,0,0,0.07); border-radius:2px; overflow:hidden; }
+  .node .prog i { display:block; height:100%; border-radius:2px; transition:width .3s; }
+  .node .pnum { font-size:9px; color:#73726C; font-variant-numeric:tabular-nums; }
+  .node .count { flex:none; min-width:15px; height:15px; border-radius:50%; color:#fff;
+                 font-size:9px; font-weight:600; display:flex; align-items:center; justify-content:center;
+                 padding:0 3px; box-shadow:0 1px 2px rgba(0,0,0,0.15); }
   .node .m { font-size:9.5px; color:#73726C; margin-top:2px; white-space:nowrap; }
   .node.long { border-style:dashed; border-left-style:solid; }
   .node.offscreen { opacity:.22; filter:saturate(.6); background:rgba(239,233,220,0.65); }
@@ -97,6 +109,17 @@
   .detail .row.done .txt { text-decoration:line-through; color:#A6A49E; }
   .detail .close { position:absolute; right:8px; top:6px; color:#A6A49E; cursor:pointer; font-size:12px; }
 
+  .leaves { position:absolute; display:none; gap:6px; z-index:70; }
+  .leaves.show { display:flex; animation:actpop .18s ease-out; }
+  .leaf { padding:5px 9px; background:rgba(255,255,255,0.8); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+          border:1px solid rgba(232,230,220,0.9); border-radius:12px 12px 12px 3px;
+          font-size:11px; color:#3D3A35; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.07);
+          transition:transform .12s; animation:leafpop .25s backwards; }
+  .leaf:hover { transform:scale(1.12) rotate(-3deg); border-color:#D97757; color:#D97757; }
+  @keyframes leafpop { from { transform:scale(.5) rotate(8deg); opacity:0; } }
+  .leaf.more { color:#A6A49E; cursor:default; pointer-events:none; }
+  .task-actions { display:flex; gap:8px; margin-top:10px; }
+
   .addcard { position:absolute; width:170px; padding:7px 10px; z-index:90;
              background:rgba(255,255,255,0.88); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
              border:1px solid rgba(232,230,220,0.9); border-radius:11px;
@@ -114,7 +137,7 @@
 </head>
 <body>
 <div class="hint">
-  <b>v16 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
+  <b>v17 · 0801：</b>默认<b>向上拔</b> ｜ 悬停节点 → 上排 ＋ 🗑 ⇄拔树（根+↺重置）｜ 下排<b>叶子=任务</b>（点叶子开详情：▶番茄挂任务级 ✓完成 🗑）｜ 节点=阶段名+期限tag+进度条+红点任务数 ｜ 普通拖动=移位置 ｜ 右上角切方向/重置
 </div>
 <div class="stage" id="stage">
 
@@ -454,7 +477,7 @@ function currentTask() {
   }
   return null;
 }
-let focusing = null, focusNodeId = null, focusEnd = 0, focusLeft = 0, paused = false, timerInt = null;
+let focusing = null, focusNodeId = null, focusTask = null, focusEnd = 0, focusLeft = 0, paused = false, timerInt = null;
 const fmt = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
 function renderBar() {
   if (focusing) return;
@@ -463,8 +486,8 @@ function renderBar() {
   if (cur) barDot.style.background = cur.p.color;
 }
 barTimer.onclick = () => { if (!focusing) { const c = currentTask(); if (c) startFocus(c.t.t); } };
-function startFocus(name, nodeId = null) {
-  focusing = name; focusNodeId = nodeId; paused = false;
+function startFocus(name, nodeId = null, task = null) {
+  focusing = name; focusNodeId = nodeId; focusTask = task; paused = false;
   focusEnd = Date.now() + 25*60*1000;
   barTitle.textContent = name;
   barTimer.textContent = '25:00';
@@ -489,7 +512,8 @@ function endFocus(completed) {
     barTitle.textContent = '完成了吗？';
     barTimer.innerHTML = '<span id="cfYes" style="cursor:pointer;color:#7D9B76">✓</span> <span id="cfNo" style="cursor:pointer">↻</span>';
     document.getElementById('cfYes').onclick = () => {
-      const t = n?.g.tasks.find(t => !t.done);
+      // 番茄挂到任务级：完成确认勾掉发起番茄的那条任务
+      const t = focusTask || n?.g.tasks.find(t => !t.done);
       if (t) t.done = true;
       cleanupFocus(); buildTree(); save(); renderBar();
     };
@@ -501,7 +525,7 @@ function endFocus(completed) {
 }
 function cleanupFocus() {
   if (focusNodeId) nodeEls.get(focusNodeId)?.classList.remove('focusing-node');
-  focusing = null; focusNodeId = null; paused = false;
+  focusing = null; focusNodeId = null; focusTask = null; paused = false;
   document.getElementById('pauseBtn').style.display = 'none';
   document.getElementById('stopBtn').style.display = 'none';
   barTimer.textContent = '▶ 开始';
@@ -567,16 +591,21 @@ function buildTree() {
     el.className = 'node ' + n.g.horizon + (n.revealed ? '' : ' offscreen') + (total > 0 && done === total ? ' complete' : '');
     el.dataset.id = n.id;
     el.style.borderLeftColor = n.p.color;
-    el.innerHTML = `<div class="t">${n.g.goal}</div><div class="m">${n.g.due} · ${{short:'短期',mid:'中期',long:'长期'}[n.g.horizon]} · ${total-done}任务</div>` +
-      (total ? `<svg class="ring" viewBox="0 0 18 18">
-        <circle class="bg" cx="9" cy="9" r="7"/>
-        <circle cx="9" cy="9" r="7" stroke="${done===total?'#7D9B76':n.p.color}"
-          stroke-dasharray="${(C*frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 9 9)"/>
-      </svg>` : '');
+    // 节点只保留阶段名；期限 tag（含日期）、进度条+数字、红点任务数
+    const open = total - done;
+    const pct = total ? Math.round(frac * 100) : 0;
+    el.innerHTML = `
+      <div class="trow"><span class="t">${n.g.goal}</span>
+        <span class="htag ${n.g.horizon}">${{short:'短期',mid:'中期',long:'长期'}[n.g.horizon]}${n.g.due && n.g.due !== '未定' ? ' ' + n.g.due : ''}</span>
+      </div>
+      <div class="prow">
+        <span class="prog"><i style="width:${pct}%;background:${done === total && total ? '#7D9B76' : n.p.color}"></i></span>
+        <span class="pnum">${done}/${total}</span>
+        <span class="count" style="background:${n.p.color}">${open}</span>
+      </div>`;
     el.onmouseenter = () => showActs(n);
     el.onmouseleave = () => scheduleHideActs();   // 离开节点不立即收起，进入悬停上下文宽限
     el.onmousedown = (e) => startMoveNode(e, n);   // 普通拖动 = 只移动节点相对位置
-    el.onclick = () => { if (!pullMoved) showDetail(n); };
     canvas.appendChild(el);
     nodeEls.set(n.id, el);
   });
@@ -947,14 +976,12 @@ function showActs(n) {
   const isRoot = !edges.some(e => e.to === n.id && e.type === 'seq');
   actsEl.innerHTML = `
     <div class="act" title="新增分支" style="color:#7D9B76">＋</div>
-    <div class="act" title="开始番茄" style="color:#D97757">▶</div>
     <div class="act" title="删除" style="color:#73726C">🗑</div>
     <div class="act move" title="拔树（按住沿方向拽）" style="color:#9ec1ea">⇄</div>` +
     (isRoot ? `<div class="act" title="重置这棵树（全部埋回土里）" style="color:#e8c37a">↺</div>` : '');
-  const [a, b, c, m, r] = actsEl.children;
+  const [a, c, m, r] = actsEl.children;
   if (r) r.onclick = (e) => { e.stopPropagation(); resetTree(n.p); };
   a.onclick = (e) => { e.stopPropagation(); showAddCard(n); };
-  b.onclick = (e) => { e.stopPropagation(); startFocus(n.g.goal, n.id); };
   c.onclick = (e) => { e.stopPropagation();
     const el = nodeEls.get(n.id);
     el.style.transition = 'opacity .2s, transform .2s';
@@ -970,6 +997,7 @@ function showActs(n) {
   canvas.appendChild(actsEl);
   positionActs();
   showPortDot(n);
+  showLeaves(n);   // 下方一排叶子 = 该节点的任务（关键字 ≤2 字）
 }
 function positionActs() {
   if (actsEl && actsNode) {
@@ -978,7 +1006,43 @@ function positionActs() {
     actsEl.style.top  = (actsNode.y + o.y - 32) + 'px';
   }
 }
-function hideActs() { actsEl?.remove(); actsEl = null; actsNode = null; hidePortDot(); }
+function hideActs() { actsEl?.remove(); actsEl = null; actsNode = null; hidePortDot(); hideLeaves(); }
+
+// 悬停节点时，下方出现一排"叶子" = 该节点的任务（关键字 ≤2 字）
+let leavesEl = null;
+function showLeaves(n) {
+  hideLeaves();
+  const open = n.g.tasks.filter(t => !t.done);
+  if (!open.length) return;
+  const rp = renderedPos(n);
+  const el = nodeEls.get(n.id);
+  const h = el?.offsetHeight || 46;
+  leavesEl = document.createElement('div');
+  leavesEl.className = 'leaves show';
+  leavesEl.style.left = (rp.x - 4) + 'px';
+  leavesEl.style.top = (rp.y + h + 7) + 'px';
+  open.slice(0, 6).forEach((t, i) => {
+    const leaf = document.createElement('div');
+    leaf.className = 'leaf';
+    leaf.style.animationDelay = (i * 0.05) + 's';
+    leaf.textContent = t.t.slice(0, 2);
+    leaf.title = t.t;
+    leaf.onclick = (e) => { e.stopPropagation(); showTaskDetail(n, t, leaf); };
+    leaf.onmouseenter = cancelHideActs;
+    leaf.onmouseleave = scheduleHideActs;
+    leavesEl.appendChild(leaf);
+  });
+  if (open.length > 6) {
+    const more = document.createElement('div');
+    more.className = 'leaf more';
+    more.textContent = '+' + (open.length - 6);
+    leavesEl.appendChild(more);
+  }
+  leavesEl.onmouseenter = cancelHideActs;
+  leavesEl.onmouseleave = scheduleHideActs;
+  canvas.appendChild(leavesEl);
+}
+function hideLeaves() { leavesEl?.remove(); leavesEl = null; }
 
 // 出挂点：悬停节点时出现，按住拖出橡皮线连到别的节点
 let portDot = null, connectState = null;
@@ -1075,67 +1139,40 @@ function showAddCard(n) {
   };
 }
 
-/* ================= 详情（内联编辑） ================= */
+/* ================= 任务详情（点叶子弹出，番茄挂任务级） ================= */
 let detailEl = null;
-function showDetail(n) {
+function showTaskDetail(n, t, leafEl) {
   hideDetail();
   detailEl = document.createElement('div');
   detailEl.className = 'detail';
-  const rp = renderedPos(n);
-  // 面板夹取到屏幕矩形内
-  const x = Math.max(RECT.x + 8, Math.min(rp.x + 8, RECT.x + RECT.w - 224));
-  const y = Math.max(RECT.y + 8, Math.min(rp.y + 44, RECT.y + RECT.h - 220));
+  const lr = leafEl.getBoundingClientRect();
+  const cr = canvas.getBoundingClientRect();
+  const x = Math.max(RECT.x + 8, Math.min(lr.x - cr.left - 40, RECT.x + RECT.w - 224));
+  const y = Math.max(RECT.y + 8, Math.min(lr.y - cr.top + 30, RECT.y + RECT.h - 170));
   detailEl.style.cssText = `left:${x}px;top:${y}px;`;
-  const open = n.g.tasks.filter(t => !t.done).length;
   detailEl.innerHTML = `
     <div class="close">✕</div>
-    <h4 style="color:${n.p.color}" title="双击改名">${n.g.goal}</h4>
-    <div class="meta">${{short:'短期',mid:'中期',long:'长期'}[n.g.horizon]} · <span class="due" title="双击改日期">${n.g.due}</span> · ${n.p.name} · 剩 ${open} 任务</div>
-    <div class="tasks"></div>
-    <div class="addrow"><input placeholder="＋ 新任务，Enter 添加"></div>`;
+    <h4 style="color:${n.p.color}" title="双击改名">${t.t}</h4>
+    <div class="meta">${n.g.goal} · ${n.p.name} · ${t.m || '未定'}</div>
+    <div class="task-actions">
+      <div class="act" style="color:#D97757" title="开始番茄">▶</div>
+      <div class="act" style="color:#7D9B76" title="完成">✓</div>
+      <div class="act" style="color:#73726C" title="删除任务">🗑</div>
+    </div>`;
   detailEl.querySelector('.close').onclick = hideDetail;
-
-  // 双击改目标名
-  const h4 = detailEl.querySelector('h4');
-  h4.ondblclick = () => inlineEdit(h4, n.g.goal, v => { n.g.goal = v; buildTree(); save(); showDetail(n); });
-  // 双击改日期
-  const due = detailEl.querySelector('.due');
-  due.ondblclick = () => inlineEdit(due, n.g.due, v => { n.g.due = v; buildTree(); save(); showDetail(n); });
-
-  // 任务列表
-  const taskBox = detailEl.querySelector('.tasks');
-  n.g.tasks.forEach(t => {
-    const row = document.createElement('div');
-    row.className = 'row' + (t.done ? ' done' : '');
-    row.innerHTML = `<div class="chk" style="border-color:${n.p.color};${t.done?`background:${n.p.color}`:''}"></div>
-      <div class="txt">${t.t}</div><div class="del" title="删除任务">✕</div>`;
-    row.onclick = (e) => {
-      if (e.target.classList.contains('del')) return;
-      t.done = !t.done; showDetail(n); renderBar(); buildTree(); save();
-    };
-    row.querySelector('.del').onclick = (e) => {
-      e.stopPropagation();
-      n.g.tasks.splice(n.g.tasks.indexOf(t), 1);
-      showDetail(n); renderBar(); buildTree(); save();
-    };
-    row.querySelector('.txt').ondblclick = (e) => {
-      e.stopPropagation();
-      inlineEdit(row.querySelector('.txt'), t.t, v => { t.t = v; save(); showDetail(n); });
-    };
-    taskBox.appendChild(row);
-  });
-  if (!n.g.tasks.length) taskBox.innerHTML = '<div class="meta">还没有任务</div>';
-
-  // 底部加任务
-  const input = detailEl.querySelector('.addrow input');
-  input.onkeydown = (ev) => {
-    if (ev.key === 'Enter' && input.value.trim()) {
-      n.g.tasks.push({ t: input.value.trim(), m: '未定', done: false });
-      showDetail(n); renderBar(); buildTree(); save();
-    }
-    if (ev.key === 'Escape') hideDetail();
+  const [play, done, del] = detailEl.querySelectorAll('.task-actions .act');
+  play.onclick = () => { hideDetail(); startFocus(t.t, n.id, t); };
+  done.onclick = () => { t.done = true; hideDetail(); buildTree(); save(); renderBar(); };
+  del.onclick = () => {
+    n.g.tasks.splice(n.g.tasks.indexOf(t), 1);
+    hideDetail(); buildTree(); save(); renderBar();
   };
+  // 双击改任务名
+  detailEl.querySelector('h4').ondblclick = (e) =>
+    inlineEdit(e.currentTarget, t.t, v => { t.t = v; save(); buildTree(); });
   detailEl.onclick = (e) => e.stopPropagation();
+  detailEl.onmouseenter = cancelHideActs;
+  detailEl.onmouseleave = scheduleHideActs;
   canvas.appendChild(detailEl);
 }
 function inlineEdit(el, initial, commit) {
@@ -1145,14 +1182,13 @@ function inlineEdit(el, initial, commit) {
   el.replaceWith(input);
   input.focus();
   input.select();
-  const done = (ok) => { if (ok && input.value.trim()) commit(input.value.trim()); else showDetailSafe(); };
+  const done = (ok) => { if (ok && input.value.trim()) commit(input.value.trim()); };
   input.onkeydown = (ev) => {
     if (ev.key === 'Enter') done(true);
     if (ev.key === 'Escape') done(false);
   };
   input.onblur = () => done(true);
 }
-function showDetailSafe() { /* blur/esc 兜底：重开当前详情 */ }
 function hideDetail() { detailEl?.remove(); detailEl = null; }
 
 /* ================= 今日清单 ================= */
