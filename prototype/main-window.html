@@ -198,12 +198,18 @@
          font-size:11.5px; padding:5px 12px; border-radius:10px; cursor:pointer; }
   .btn:hover { background:#F5F4EE; }
   .okdot { color:#7D9B76; font-size:11px; }
+  .logo svg { vertical-align: -4px; margin-right: 2px; }
 </style>
 </head>
 <body>
 <div class="app">
   <div class="topbar">
-    <div class="logo">🌱 Twig<small>主窗口原型</small></div>
+    <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+  <path d="M7 19 C 9 14, 11 12, 12 8" stroke="#D97757" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+  <circle cx="12.5" cy="6.5" r="3" fill="#D97757"/>
+  <circle cx="9" cy="12" r="3" fill="#7D9B76"/>
+  <circle cx="6.5" cy="19.5" r="3" fill="#D97757"/>
+</svg> Twig<small>主窗口原型</small></div>
     <div class="tabs" id="tabs">
       <button data-tab="tasks" class="on">任务</button>
       <button data-tab="reports">报表</button>
