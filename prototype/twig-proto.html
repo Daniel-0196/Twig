@@ -193,11 +193,12 @@ function fitScreen() {
 const DIRS = {};
 function computeDirs() {
   // 按钮方向 = 拖拽/出土方向；树的朝向相反（根在拖拽起点侧，深层埋在出土对侧的土壤里）
+  // 拖拽方向=出土方向；根贴近出土侧的边缘（树基在土里），枝叶指向屏内
   Object.assign(DIRS, {
-    right: { ux: 1,  uy: 0,  axis: 'x', soil: RECT.x,          root: RECT.x + RECT.w - 170, rSign: -1, hSign: -1 },
-    down:  { ux: 0,  uy: 1,  axis: 'y', soil: RECT.y,          root: RECT.y + RECT.h - 90,  rSign: -1, hSign: -1 },
-    left:  { ux: -1, uy: 0,  axis: 'x', soil: RECT.x + RECT.w, root: RECT.x + 50,           rSign: 1,  hSign: 1 },
-    up:    { ux: 0,  uy: -1, axis: 'y', soil: RECT.y + RECT.h, root: RECT.y + 80,           rSign: 1,  hSign: 1 },
+    right: { ux: 1,  uy: 0,  axis: 'x', soil: RECT.x,          root: RECT.x + 170,           rSign: 1,  hSign: -1 },
+    down:  { ux: 0,  uy: 1,  axis: 'y', soil: RECT.y,          root: RECT.y + 90,            rSign: 1,  hSign: -1 },
+    left:  { ux: -1, uy: 0,  axis: 'x', soil: RECT.x + RECT.w, root: RECT.x + RECT.w - 170, rSign: -1, hSign: 1 },
+    up:    { ux: 0,  uy: -1, axis: 'y', soil: RECT.y + RECT.h, root: RECT.y + RECT.h - 90,  rSign: -1, hSign: 1 },
   });
 }
 let direction = 'up';
@@ -258,9 +259,10 @@ function sanitizeReveal() {
 
 function relayout() {
   const d = DIRS[direction];
-  // 揭示节点可用的主轴跨度（up 是朝矩形顶部生长，其余朝土壤）
-  const span = d.rSign > 0 ? d.soil - d.root
-             : (d.axis === 'x' ? d.root - d.soil : d.root - RECT.y);
+  // 揭示节点可用的主轴跨度（根 → 屏内对边）
+  const span = d.rSign > 0
+    ? (d.axis === 'x' ? RECT.x + RECT.w - d.root : RECT.y + RECT.h - d.root)
+    : (d.axis === 'x' ? d.root - RECT.x : d.root - RECT.y);
   const slotsFit = Math.max(1, Math.floor(span / GAP));
   sanitizeReveal();
   projects.forEach((p, pi) => {

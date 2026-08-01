@@ -91,7 +91,7 @@ ws.onopen = async () => {
   check('根节点(v0.2)在屏内', v02a && v02a.y > t1.rect.y && v02a.y < t1.rect.y + t1.rect.height, JSON.stringify(v02a));
   check('v0.5 埋在土壤线下（半透明）', v05a && v05a.y > t1.rect.y + t1.rect.height && parseFloat(v05a.op) < 0.3, JSON.stringify(v05a));
   check('两树根同高度', v02a && greenA && Math.abs(v02a.y - greenA.y) < 30, `${v02a?.y} vs ${greenA?.y}`);
-  check('根节点贴矩形边缘（上 15%~40% 区间）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.05 && v02a.y < t1.rect.y + t1.rect.height * 0.4, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
+  check('向上拽时根节点贴下半屏（60%~95% 区间）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.6 && v02a.y < t1.rect.y + t1.rect.height * 0.95, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
 
   // ---- T2 拔树 ----
   console.log('T2 拔树（向上 240px，视口内完成）');
@@ -126,7 +126,7 @@ ws.onopen = async () => {
   check('切换后偏移为零', t4.twig.x === 0 && t4.twig.y === 0);
   const v02r = await nodePos('画板交互');
   const v05r = await nodePos('交互定版');
-  check('向右拽→树朝左：v0.5 在 v0.2 左侧（或埋着）', v05r && v02r && v05r.x < v02r.x, `${v02r?.x} vs ${v05r?.x}`);
+  check('向右拽→根在左、v0.5 在右侧或埋在左边界', v05r && v02r && (v05r.x > v02r.x || v05r.cls.includes('offscreen')), `${v02r?.x} vs ${v05r?.x} ${v05r?.cls}`);
   await evaljs(`[...document.querySelectorAll('#dirbar button')].find(b => b.dataset.dir === 'up').click(); 'ok'`);
   await sleep(400);
 
