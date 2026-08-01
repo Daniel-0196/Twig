@@ -114,7 +114,7 @@
 </head>
 <body>
 <div class="hint">
-  <b>v15 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
+  <b>v16 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
 </div>
 <div class="stage" id="stage">
 
@@ -696,35 +696,36 @@ function applyTree() {
   positionActs();
 }
 
-// 茎渲染：沿贝塞尔采样分段，线宽根粗梢细、颜色渐淡，末端消融成圆点
-function drawStem(svg, pathD, color, { w0 = 3, w1 = 0.7, a0 = 0.95, a1 = 0.4, hot = false } = {}) {
+// 茎渲染：多层光滑曲线叠加出锥度（细笔贯通、粗笔只覆盖根部），无接缝
+function drawStem(svg, pathD, color, { w0 = 3, w1 = 0.8, a0 = 0.9, a1 = 0.4, hot = false } = {}) {
   const ns = 'http://www.w3.org/2000/svg';
   const tmp = document.createElementNS(ns, 'path');
   tmp.setAttribute('d', pathD);
   const L = tmp.getTotalLength();
   if (!L) return;
-  const N = Math.max(6, Math.min(14, Math.round(L / 18)));
-  const dim = actsNode ? (hot ? 1 : 0.3) : 1;  // 只有悬停聚焦时才压暗无关边
-  let prev = tmp.getPointAtLength(0);
-  for (let i = 1; i <= N; i++) {
-    const pt = tmp.getPointAtLength(L * i / N);
-    const t = i / N;
-    const seg = document.createElementNS(ns, 'path');
-    seg.setAttribute('d', `M ${prev.x} ${prev.y} L ${pt.x} ${pt.y}`);
-    seg.setAttribute('stroke', color);
-    seg.setAttribute('stroke-width', Math.max(0.4, (w0 + (w1 - w0) * t) * (hot ? 1.15 : 0.85)));
-    seg.setAttribute('stroke-opacity', (a0 + (a1 - a0) * t) * dim);
-    seg.setAttribute('class', 'edge');
-    svg.appendChild(seg);
-    prev = pt;
+  const dim = actsNode ? (hot ? 1 : 0.3) : 1;
+  const STEPS = 4;
+  for (let i = 0; i < STEPS; i++) {
+    const k = i / (STEPS - 1);                  // 0=最细贯通 → 1=最粗只在根部
+    const cover = 1 - k * 0.72;                 // 覆盖长度比例：1 → 0.28
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', pathD);
+    p.setAttribute('stroke', color);
+    p.setAttribute('stroke-width', (w1 + (w0 - w1) * k) * (hot ? 1.15 : 1));
+    p.setAttribute('stroke-opacity', (a1 + (a0 - a1) * k) * dim);
+    p.setAttribute('stroke-dasharray', `${(L * cover).toFixed(1)} ${L.toFixed(1)}`);
+    p.setAttribute('stroke-linecap', 'round');
+    p.setAttribute('class', 'edge');
+    svg.appendChild(p);
   }
   // 入点消融：末端小圆点
+  const end = tmp.getPointAtLength(L);
   const dot = document.createElementNS(ns, 'circle');
-  dot.setAttribute('cx', prev.x);
-  dot.setAttribute('cy', prev.y);
-  dot.setAttribute('r', hot ? 4 : 3);
+  dot.setAttribute('cx', end.x);
+  dot.setAttribute('cy', end.y);
+  dot.setAttribute('r', hot ? 3.5 : 2.5);
   dot.setAttribute('fill', color);
-  dot.setAttribute('fill-opacity', Math.min(1, a1 * 2) * dim);
+  dot.setAttribute('fill-opacity', Math.min(1, a1 * 1.6) * dim);
   svg.appendChild(dot);
 }
 
