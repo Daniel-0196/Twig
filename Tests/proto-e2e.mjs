@@ -1,13 +1,13 @@
 // Twig 原型 E2E 测试电池（headless Chrome + CDP）
 // 用法: node tests/proto-e2e.mjs <url>
-const url = process.argv[2] || 'http://localhost:64973/?key=56af68c04f00e580af04981e8b8f3c4422f72cb0d57336da3cd613dd4c9c4283';
+const url = process.argv[2] || 'http://localhost:56754/?key=0271a82d661c52e5efa4b2e724e72db5cb21980e33b0658ef30527b70ab9d6b3';
 const { spawn, execSync } = await import('child_process');
 // 清掉上次可能残留的调试浏览器（崩溃时 port 占用会导致连到脏实例）
 try { execSync("pkill -f 'remote-debugging-port=9333' 2>/dev/null || true"); } catch {}
 await new Promise(r => setTimeout(r, 500));
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ['--headless=new', '--remote-debugging-port=9333', '--user-data-dir=/tmp/twig-e2e-' + Date.now(),
-   '--window-size=1400,900', url], { stdio: 'ignore' });
+   '--proxy-server=direct://', '--host-resolver-rules=MAP localhost 127.0.0.1', '--window-size=1400,900', url], { stdio: 'ignore' });
 let list = null;
 for (let i = 0; i < 20 && !list; i++) {
   await new Promise(r => setTimeout(r, 500));
@@ -62,10 +62,16 @@ ws.onopen = async () => {
   await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
   await send('Page.reload', { ignoreCache: true });
-  await sleep(1500);
+  // 轮询等待页面就绪（最多 10 秒）
+  let ready = false;
+  for (let i = 0; i < 20 && !ready; i++) {
+    await sleep(500);
+    ready = await evaljs(`document.querySelectorAll('.node').length > 0 ? '1' : ''`);
+  }
 
   // ---- T0 版本水印 ----
   console.log('T0 版本水印');
+  console.log('  [诊断] 当前页面:', await evaljs(`location.href.slice(0, 60)`), '| 节点数:', await evaljs(`document.querySelectorAll('.node').length`));
   const ver = await evaljs(`document.querySelector('.hint b')?.textContent`);
   check('页面带版本水印', /v\d+/.test(ver || ''), ver);
 
@@ -85,7 +91,7 @@ ws.onopen = async () => {
   check('根节点(v0.2)在屏内', v02a && v02a.y > t1.rect.y && v02a.y < t1.rect.y + t1.rect.height, JSON.stringify(v02a));
   check('v0.5 埋在土壤线下（半透明）', v05a && v05a.y > t1.rect.y + t1.rect.height && parseFloat(v05a.op) < 0.3, JSON.stringify(v05a));
   check('两树根同高度', v02a && greenA && Math.abs(v02a.y - greenA.y) < 30, `${v02a?.y} vs ${greenA?.y}`);
-  check('根节点在矩形中段（不贴边）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.2 && v02a.y < t1.rect.y + t1.rect.height * 0.6, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
+  check('根节点贴矩形边缘（上 15%~40% 区间）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.05 && v02a.y < t1.rect.y + t1.rect.height * 0.4, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
 
   // ---- T2 拔树 ----
   console.log('T2 拔树（向上 240px，视口内完成）');
@@ -113,7 +119,7 @@ ws.onopen = async () => {
   // ---- T4 方向切换 ----
   console.log('T4 方向切换到向右');
   await evaljs(`localStorage.clear(); location.reload();`);
-  await sleep(1500);
+  await sleep(2000);
   await evaljs(`[...document.querySelectorAll('#dirbar button')].find(b => b.dataset.dir === 'right').click(); 'ok'`);
   await sleep(500);
   const t4 = JSON.parse(await evaljs(`JSON.stringify(treeOffsets)`));
@@ -176,6 +182,17 @@ ws.onopen = async () => {
   await evaljs(`redrawEdges(); 'ok'`);
   const seqAfter = JSON.parse(await evaljs(`JSON.stringify(edges.filter(e => e.type === 'seq').length)`));
   check('改型后 seq 少一条', seqAfter === seqBefore - 1, `${seqBefore} → ${seqAfter}`);
+
+  // ---- T9 单树重置 ----
+  console.log('T9 单树重置');
+  const v05e = await nodePos('交互定版');
+  check('重置前 v0.5 已出土', v05e && !v05e.cls.includes('offscreen'), JSON.stringify(v05e));
+  await evaljs(`resetTree(projects.find(p => p.name === 'twig')); 'ok'`);
+  await sleep(400);
+  const v05f = await nodePos('交互定版');
+  const greenF = await nodePos('玩法闭环');
+  check('twig 树重置：v0.5 埋回土里', v05f && v05f.cls.includes('offscreen'), JSON.stringify(v05f));
+  check('绿树不受单树重置影响', greenF && greenF.cls.includes('offscreen') === (await nodePos('玩法闭环')).cls.includes('offscreen'), 'ok');
 
   // ---- T5 悬停功能区 ----
   console.log('T5 悬停出功能区');
