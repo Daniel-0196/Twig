@@ -91,7 +91,7 @@ ws.onopen = async () => {
   check('根节点(v0.2)在屏内', v02a && v02a.y > t1.rect.y && v02a.y < t1.rect.y + t1.rect.height, JSON.stringify(v02a));
   check('v0.5 埋在土壤线下（半透明）', v05a && v05a.y > t1.rect.y + t1.rect.height && parseFloat(v05a.op) < 0.3, JSON.stringify(v05a));
   check('两树根同高度', v02a && greenA && Math.abs(v02a.y - greenA.y) < 30, `${v02a?.y} vs ${greenA?.y}`);
-  check('向上拽：根贴底边（65%~95%）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.65 && v02a.y < t1.rect.y + t1.rect.height * 0.95, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
+  check('向上拽：根贴底边（60%~95%）', v02a && v02a.y > t1.rect.y + t1.rect.height * 0.6 && v02a.y < t1.rect.y + t1.rect.height * 0.95, `y=${v02a?.y} rect=[${t1.rect.y},${t1.rect.y + t1.rect.height}]`);
 
   // ---- T2 拔树 ----
   console.log('T2 拔树（向上 240px，视口内完成）');
@@ -112,10 +112,11 @@ ws.onopen = async () => {
   const mid2 = JSON.parse(await evaljs(`JSON.stringify(treeOffsets)`));
   check('偏移归零（弹回）', Math.abs(mid2.twig.y) < 1 && Math.abs(mid2.twig.x) < 1, JSON.stringify(mid2));
   const v02b = await nodePos('画板交互');
-  check('v0.2 回到初始位置', v02b && Math.abs(v02b.y - v02a.y) < 15, `${v02a.y} → ${v02b?.y}`);
+  // 出土后根向屏内迁移一档（GAP），回弹到新静止位而不是原位置
+  check('v0.2 随出土迁移到新静止位', v02b && Math.abs(v02b.y - (v02a.y - 150)) < 30, `${v02a.y} → ${v02b?.y} (期望 ≈${v02a.y - 150})`);
   const v05c = await nodePos('交互定版');
   check('出土的 v0.5 留下', v05c && !v05c.cls.includes('offscreen'));
-  check('出土后 v0.5 在屏内（根的内侧上方）', v05c && v02b && v05c.y < v02b.y && v05c.y > t1.rect.y, `${v05c?.y} vs root ${v02b?.y} vs 顶边 ${t1.rect.y}`);
+  check('出土后 v0.5 在根与土壤之间且在屏内', v05c && v02b && v05c.y > v02b.y && v05c.y < t1.rect.y + t1.rect.height, `${v05c?.y} vs root ${v02b?.y} vs 底边 ${t1.rect.y + t1.rect.height}`);
 
   // ---- T4 方向切换 ----
   console.log('T4 方向切换到向右');

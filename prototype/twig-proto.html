@@ -195,12 +195,12 @@ function computeDirs() {
   // 按钮方向 = 拖拽/出土方向；树的朝向相反（根在拖拽起点侧，深层埋在出土对侧的土壤里）
   // 树朝向 = 土壤方向：根在屏内（贴土壤一侧），深层朝土壤方向垂下去（埋进土里）
   // 出土后树形不变：向上拽=根在上枝叶朝下、深层埋在下方土壤
-  // 土壤在拖拽反方向；揭示节点从根往屏内长（远离土壤），埋的在土线外
+  // 链条朝土壤方向连续生长（出土的和埋着的同一朝向）；root 为基准内边距，实际根位随出土深度迁移（见 relayout）
   Object.assign(DIRS, {
-    up:    { ux: 0,  uy: -1, axis: 'y', soil: RECT.y + RECT.h, root: RECT.y + RECT.h - 90,  rSign: -1, hSign: 1 },
-    down:  { ux: 0,  uy: 1,  axis: 'y', soil: RECT.y,          root: RECT.y + 90,           rSign: 1,  hSign: -1 },
-    left:  { ux: -1, uy: 0,  axis: 'x', soil: RECT.x,          root: RECT.x + 170,          rSign: 1,  hSign: -1 },
-    right: { ux: 1,  uy: 0,  axis: 'x', soil: RECT.x + RECT.w, root: RECT.x + RECT.w - 170, rSign: -1, hSign: 1 },
+    up:    { ux: 0,  uy: -1, axis: 'y', soil: RECT.y + RECT.h, rSign: 1,  hSign: 1 },
+    down:  { ux: 0,  uy: 1,  axis: 'y', soil: RECT.y,          rSign: -1, hSign: -1 },
+    left:  { ux: -1, uy: 0,  axis: 'x', soil: RECT.x,          rSign: -1, hSign: -1 },
+    right: { ux: 1,  uy: 0,  axis: 'x', soil: RECT.x + RECT.w, rSign: 1,  hSign: 1 },
   });
 }
 let direction = 'up';
@@ -266,13 +266,22 @@ function relayout() {
     const depth = topoDepths(p);
     const baseCross = crossOf(pi);
     const shown = nodes.filter(n => n.p === p && n.cx === undefined && n.revealed);
+    // 根随出土深度向屏内迁移：出土的链条全部落在屏内（setAbs 直接给绝对主轴坐标）
+    const Dmax = shown.reduce((m, n) => Math.max(m, Math.max(0, depth.get(n.id))), 0);
+    const rootBase = d.hSign > 0
+      ? d.soil - Math.max(90, Dmax * GAP + 50)    // 土壤在正方向（下/右）：根在土线内侧
+      : d.soil + Math.max(90, Dmax * GAP + 50);   // 土壤在负方向（上/左）
+    const setAbs = (n, main, cross) => {
+      if (d.axis === 'x') { n.x = main; n.y = cross; }
+      else { n.y = main; n.x = cross; }
+    };
     // 根层（含孤立节点）：在主锚点处扇开
     const roots = shown.filter(n => (depth.get(n.id) ?? -1) <= 0);
     roots.forEach((n, i) => {
       n.crossPos = baseCross + (i - (roots.length - 1) / 2) * 110 + jitterOf(n);
-      setPos(n, 0, n.crossPos);
+      setAbs(n, rootBase, n.crossPos);
     });
-    // 逐层扇开：子节点以父节点 cross 为中心分叉（支持一出多）
+    // 逐层扇开：子节点以父节点 cross 为中心分叉（支持一出多），朝土壤方向排
     let frontier = roots, dk = 1;
     while (frontier.length && dk < 20) {
       const next = [];
@@ -282,15 +291,15 @@ function relayout() {
           .filter(n => n && n.revealed && n.cx === undefined);
         kids.forEach((kid, i) => {
           kid.crossPos = (parent.crossPos ?? baseCross) + (i - (kids.length - 1) / 2) * 110 + jitterOf(kid);
-          setPos(kid, dk * GAP * spacingOf(kid), kid.crossPos);
+          setAbs(kid, rootBase + d.hSign * dk * GAP * spacingOf(kid), kid.crossPos);
           next.push(kid);
         });
       });
       frontier = next; dk++;
     }
-    // 孤立已揭示节点（无 seq 出入线）：排在右侧
+    // 孤立已揭示节点（无 seq 出入线）：排在根层旁边
     shown.filter(n => !roots.includes(n) && n.crossPos === undefined)
-      .forEach((n, i) => setPos(n, 0, baseCross + 170 + i * 100 + jitterOf(n)));
+      .forEach((n, i) => setAbs(n, rootBase, baseCross + 170 + i * 100 + jitterOf(n)));
     // 未揭示：按深度排序，浅埋的先出土
     const hidden = nodes.filter(n => n.p === p && n.cx === undefined && !n.revealed)
       .sort((a, b) => (depth.get(a.id) - depth.get(b.id)) || (a.chainIndex - b.chainIndex));
