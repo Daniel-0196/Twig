@@ -37,7 +37,7 @@
   .canvas svg.edges { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; z-index:3; }
   .edge { fill:none; stroke-width:1.5; stroke-linecap:round; }
 
-  .node { position:absolute; min-width:96px; max-width:150px; padding:7px 12px;
+  .node { position:absolute; padding:7px 12px;
           background:rgba(255,255,255,0.62); backdrop-filter:blur(14px) saturate(1.25); -webkit-backdrop-filter:blur(14px) saturate(1.25);
           border:1px solid rgba(232,230,220,0.85); border-left:3px solid;
           border-radius:11px; box-shadow:0 1px 2px rgba(0,0,0,0.04);
@@ -45,15 +45,16 @@
           z-index:5; touch-action:none; cursor:grab; }
   body.pulling .node { transition:none; }   /* 拖拽/回弹期间逐帧驱动，不用 CSS 过渡 */
   body.pulling .node.emerging { transition:left .45s cubic-bezier(.2,1.2,.3,1), top .45s cubic-bezier(.2,1.2,.3,1), opacity .3s; }
-  .node .t { font-size:12px; font-weight:600; font-family:Georgia,"Noto Serif SC","Songti SC",serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .node .trow { display:flex; align-items:center; gap:6px; }
-  .node .htag { flex:none; font-size:9px; padding:1.5px 6px; border-radius:7px; font-weight:500; }
-  .node .htag.short { background:rgba(217,119,87,0.12); color:#D97757; }
-  .node .htag.mid { background:rgba(158,193,234,0.18); color:#6b8fc4; }
-  .node .htag.long { background:rgba(166,164,158,0.15); color:#A6A49E; }
-  .node .prow { display:flex; align-items:center; gap:5px; margin-top:5px; }
-  .node .prog { flex:1; height:3px; background:rgba(0,0,0,0.07); border-radius:2px; overflow:hidden; }
-  .node .prog i { display:block; height:100%; border-radius:2px; transition:width .3s; }
+  .node .t { font-size:12px; font-weight:600; font-family:Georgia,"Noto Serif SC","Songti SC",serif; white-space:nowrap; }
+  .node .side { position:absolute; left:calc(100% + 7px); top:50%; transform:translateY(-50%);
+                display:flex; align-items:center; gap:4px; white-space:nowrap; pointer-events:none; }
+  .node .htag { flex:none; font-size:9px; padding:1.5px 6px; border-radius:7px; font-weight:500;
+                background:rgba(255,255,255,0.85); border:1px solid rgba(232,230,220,0.8); }
+  .node .htag.short { color:#D97757; }
+  .node .htag.mid { color:#6b8fc4; }
+  .node .htag.long { color:#A6A49E; }
+  .node .side .prog { width:26px; height:3px; background:rgba(0,0,0,0.07); border-radius:2px; overflow:hidden; }
+  .node .side .prog i { display:block; height:100%; border-radius:2px; }
   .node .pnum { font-size:9px; color:#73726C; font-variant-numeric:tabular-nums; }
   .node .count { flex:none; min-width:15px; height:15px; border-radius:50%; color:#fff;
                  font-size:9px; font-weight:600; display:flex; align-items:center; justify-content:center;
@@ -591,18 +592,17 @@ function buildTree() {
     el.className = 'node ' + n.g.horizon + (n.revealed ? '' : ' offscreen') + (total > 0 && done === total ? ' complete' : '');
     el.dataset.id = n.id;
     el.style.borderLeftColor = n.p.color;
-    // 节点只保留阶段名；期限 tag（含日期）、进度条+数字、红点任务数
+    // 节点主体只显示阶段名；期限/进度/任务数做成节点右侧的小 UI
     const open = total - done;
     const pct = total ? Math.round(frac * 100) : 0;
     el.innerHTML = `
-      <div class="trow"><span class="t">${n.g.goal}</span>
+      <span class="t">${n.g.goal}</span>
+      <span class="side">
         <span class="htag ${n.g.horizon}">${{short:'短期',mid:'中期',long:'长期'}[n.g.horizon]}${n.g.due && n.g.due !== '未定' ? ' ' + n.g.due : ''}</span>
-      </div>
-      <div class="prow">
         <span class="prog"><i style="width:${pct}%;background:${done === total && total ? '#7D9B76' : n.p.color}"></i></span>
         <span class="pnum">${done}/${total}</span>
         <span class="count" style="background:${n.p.color}">${open}</span>
-      </div>`;
+      </span>`;
     el.onmouseenter = () => showActs(n);
     el.onmouseleave = () => scheduleHideActs();   // 离开节点不立即收起，进入悬停上下文宽限
     el.onmousedown = (e) => startMoveNode(e, n);   // 普通拖动 = 只移动节点相对位置
