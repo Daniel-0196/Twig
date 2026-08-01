@@ -111,7 +111,7 @@
 </head>
 <body>
 <div class="hint">
-  <b>v11 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
+  <b>v13 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
 </div>
 <div class="stage" id="stage">
 
@@ -263,12 +263,33 @@ function relayout() {
   sanitizeReveal();
   projects.forEach((p, pi) => {
     const depth = topoDepths(p);
-    // 已揭示：按（深度, chainIndex）排序占槽。树朝土壤长，允许垂出土线，不换行
-    const shown = nodes.filter(n => n.p === p && n.cx === undefined && n.revealed)
-      .sort((a, b) => (depth.get(a.id) - depth.get(b.id)) || (a.chainIndex - b.chainIndex));
-    shown.forEach((n, i) => {
-      setPos(n, i * GAP * spacingOf(n), crossOf(pi) + jitterOf(n));
+    const baseCross = crossOf(pi);
+    const shown = nodes.filter(n => n.p === p && n.cx === undefined && n.revealed);
+    // 根层（含孤立节点）：在主锚点处扇开
+    const roots = shown.filter(n => (depth.get(n.id) ?? -1) <= 0);
+    roots.forEach((n, i) => {
+      n.crossPos = baseCross + (i - (roots.length - 1) / 2) * 110 + jitterOf(n);
+      setPos(n, 0, n.crossPos);
     });
+    // 逐层扇开：子节点以父节点 cross 为中心分叉（支持一出多）
+    let frontier = roots, dk = 1;
+    while (frontier.length && dk < 20) {
+      const next = [];
+      frontier.forEach(parent => {
+        const kids = edges.filter(e => e.type === 'seq' && e.from === parent.id)
+          .map(e => nodes.find(n => n.id === e.to))
+          .filter(n => n && n.revealed && n.cx === undefined);
+        kids.forEach((kid, i) => {
+          kid.crossPos = (parent.crossPos ?? baseCross) + (i - (kids.length - 1) / 2) * 110 + jitterOf(kid);
+          setPos(kid, dk * GAP * spacingOf(kid), kid.crossPos);
+          next.push(kid);
+        });
+      });
+      frontier = next; dk++;
+    }
+    // 孤立已揭示节点（无 seq 出入线）：排在右侧
+    shown.filter(n => !roots.includes(n) && n.crossPos === undefined)
+      .forEach((n, i) => setPos(n, 0, baseCross + 170 + i * 100 + jitterOf(n)));
     // 未揭示：按深度排序，浅埋的先出土
     const hidden = nodes.filter(n => n.p === p && n.cx === undefined && !n.revealed)
       .sort((a, b) => (depth.get(a.id) - depth.get(b.id)) || (a.chainIndex - b.chainIndex));
@@ -567,6 +588,12 @@ function renderMounds() {
 function applyTree() {
   renderMounds();
   const d = DIRS[direction];
+  // 记录各项目偏移速度（张力弯曲用）
+  Object.values(treeOffsets).forEach(o => {
+    o.vx = o.x - (o.px ?? o.x);
+    o.vy = o.y - (o.py ?? o.y);
+    o.px = o.x; o.py = o.y;
+  });
   let changed = false;
   nodes.forEach(n => {
     const el = nodeEls.get(n.id);
@@ -653,13 +680,44 @@ function applyTree() {
   positionActs();
 }
 
+// 茎渲染：沿贝塞尔采样分段，线宽根粗梢细、颜色渐淡，末端消融成圆点
+function drawStem(svg, pathD, color, { w0 = 3, w1 = 0.6, a0 = 0.9, a1 = 0.15, hot = false } = {}) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const tmp = document.createElementNS(ns, 'path');
+  tmp.setAttribute('d', pathD);
+  const L = tmp.getTotalLength();
+  if (!L) return;
+  const N = Math.max(6, Math.min(14, Math.round(L / 18)));
+  const dim = hot ? 1 : 0.3;                 // 非高亮边整体变淡（悬停聚焦）
+  let prev = tmp.getPointAtLength(0);
+  for (let i = 1; i <= N; i++) {
+    const pt = tmp.getPointAtLength(L * i / N);
+    const t = i / N;
+    const seg = document.createElementNS(ns, 'path');
+    seg.setAttribute('d', `M ${prev.x} ${prev.y} L ${pt.x} ${pt.y}`);
+    seg.setAttribute('stroke', color);
+    seg.setAttribute('stroke-width', Math.max(0.4, (w0 + (w1 - w0) * t) * (hot ? 1.15 : 0.85)));
+    seg.setAttribute('stroke-opacity', (a0 + (a1 - a0) * t) * dim);
+    seg.setAttribute('class', 'edge');
+    svg.appendChild(seg);
+    prev = pt;
+  }
+  // 入点消融：末端小圆点
+  const dot = document.createElementNS(ns, 'circle');
+  dot.setAttribute('cx', prev.x);
+  dot.setAttribute('cy', prev.y);
+  dot.setAttribute('r', hot ? 4 : 3);
+  dot.setAttribute('fill', color);
+  dot.setAttribute('fill-opacity', Math.min(1, a1 * 2) * dim);
+  svg.appendChild(dot);
+}
+
 function redrawEdges() {
   const svg = canvas.querySelector('svg.edges');
   if (!svg) return;
   svg.innerHTML = '';
   const ns = 'http://www.w3.org/2000/svg';
   const d = DIRS[direction];
-  // g = 树的朝向（根→深层），连线/箭头都沿它
   const g = { x: d.axis === 'x' ? d.rSign : 0, y: d.axis === 'y' ? d.rSign : 0 };
   edges.forEach(e => {
     const a = nodes.find(n => n.id === e.from);
@@ -668,31 +726,28 @@ function redrawEdges() {
     const out = portOf(a, true);
     const end = portOf(b, false);
     const isSeq = e.type === 'seq';
-    const color = isSeq ? a.p.color : 'rgba(255,255,255,0.3)';
-    // 悬垂弯曲：垂直主轴的弯平面；静态微弯 + 随拖拽横向分量同向变弯
+    const color = isSeq ? a.p.color : 'rgba(255,255,255,0.35)';
+    const hot = actsNode && (e.from === actsNode.id || e.to === actsNode.id);
+    // 张力弯曲：弯向跟随拖拽横向速度，速度越快弯越大（藤蔓感）
     const perpU = { x: -g.y, y: g.x };
-    const chordLen = Math.max(1, Math.hypot(end.x - out.x, end.y - out.y));
     const o = offsetOf(a.p);
+    const crossVel = d.axis === 'x' ? (o.vy || 0) : (o.vx || 0);
     const crossPull = d.axis === 'x' ? o.y : o.x;
-    const bowStatic = Math.min(10, chordLen * 0.06) * (hash01(e.id) > 0.5 ? 1 : -1);
-    const bowDyn = Math.max(-55, Math.min(55, crossPull * 0.4));
+    const bowStatic = Math.min(8, Math.hypot(end.x - out.x, end.y - out.y) * 0.05) * (hash01(e.id) > 0.5 ? 1 : -1);
+    const bowDyn = Math.max(-60, Math.min(60, crossVel * 6 + crossPull * 0.25));
     const bow = bowStatic + bowDyn;
     const perp = { x: perpU.x * bow, y: perpU.y * bow };
 
     if (!b.revealed) {
-      // 跨界（seq）：土壤交界点弯折——地上实线、地下虚线
+      // 跨界（seq）：土壤交界点弯折——地上茎、地下虚线
       if (!isSeq) return;
       const main = p => d.axis === 'x' ? p.x : p.y;
       const t = Math.max(0.05, Math.min(0.95, (d.soil - main(out)) / (main(end) - main(out))));
       const S = { x: out.x + (end.x - out.x) * t, y: out.y + (end.y - out.y) * t };
       const c1 = { x: out.x + g.x * 40 + perp.x * 0.7, y: out.y + g.y * 40 + perp.y * 0.7 };
       const c2 = { x: S.x - g.x * 24 + perp.x * 0.9, y: S.y - g.y * 24 + perp.y * 0.9 };
-      const above = document.createElementNS(ns, 'path');
-      above.setAttribute('d', `M ${out.x} ${out.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${S.x} ${S.y}`);
-      above.setAttribute('stroke', color);
-      above.setAttribute('stroke-opacity', '.75');
-      above.setAttribute('class', 'edge');
-      svg.appendChild(above);
+      drawStem(svg, `M ${out.x} ${out.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${S.x} ${S.y}`,
+               color, { w0: 2.6, w1: 1, a0: 0.8, a1: 0.4, hot: !!hot });
       const c3 = { x: S.x + g.x * 30, y: S.y + g.y * 30 };
       const c4 = { x: end.x - g.x * 40, y: end.y - g.y * 40 };
       const below = document.createElementNS(ns, 'path');
@@ -705,22 +760,27 @@ function redrawEdges() {
       return;
     }
 
-    // 普通边：出挂点法向伸出 → 入挂点，seq 带箭头
+    if (!isSeq) {
+      // 引用线：细灰虚线
+      const norm = 40;
+      const m1 = { x: out.x + g.x * norm + perp.x * 0.8, y: out.y + g.y * norm + perp.y * 0.8 };
+      const m2 = { x: end.x - g.x * norm + perp.x, y: end.y - g.y * norm + perp.y };
+      const path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', `M ${out.x} ${out.y} C ${m1.x} ${m1.y}, ${m2.x} ${m2.y}, ${end.x} ${end.y}`);
+      path.setAttribute('stroke', color);
+      path.setAttribute('stroke-dasharray', '2 4');
+      path.setAttribute('stroke-opacity', '.5');
+      path.setAttribute('class', 'edge');
+      svg.appendChild(path);
+      return;
+    }
+
+    // 顺序线：茎渲染（根粗梢细 + 渐淡 + 入点消融），方向由粗细表达
     const norm = 40;
     const m1 = { x: out.x + g.x * norm + perp.x * 0.8, y: out.y + g.y * norm + perp.y * 0.8 };
     const m2 = { x: end.x - g.x * norm + perp.x, y: end.y - g.y * norm + perp.y };
     const pathD = `M ${out.x} ${out.y} C ${m1.x} ${m1.y}, ${m2.x} ${m2.y}, ${end.x} ${end.y}`;
-    const path = document.createElementNS(ns, 'path');
-    path.setAttribute('d', pathD);
-    path.setAttribute('stroke', color);
-    path.setAttribute('class', 'edge' + (b.justRevealed ? ' grow' : ''));
-    b.justRevealed = false;
-    path.setAttribute('stroke-opacity', isSeq ? '.75' : '.6');
-    path.setAttribute('stroke-width', isSeq ? Math.max(1, 2 - a.chainIndex * 0.35) : 1);
-    if (!isSeq) path.setAttribute('stroke-dasharray', '2 4');
-    svg.appendChild(path);
-
-    if (isSeq) drawArrow(svg, end, g, color);
+    drawStem(svg, pathD, color, { hot: !!hot });
 
     // 隐形双击热区：双击切换 顺序/引用
     const hit = document.createElementNS(ns, 'path');
@@ -940,9 +1000,9 @@ function endConnect(e) {
   const target = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.node');
   const to = target ? nodes.find(n => n.id === target.dataset.id) : null;
   if (to && to !== connectState.from) {
-    // 一个节点只保留一条出向顺序线
-    edges = edges.filter(x => !(x.from === connectState.from.id && x.type === 'seq'));
-    edges.push({ id: 'e' + Date.now(), from: connectState.from.id, to: to.id, type: 'seq' });
+    // 一个节点可以扇出 N 条出线；同一对节点不重复连
+    const dup = edges.some(x => x.from === connectState.from.id && x.to === to.id && x.type === 'seq');
+    if (!dup) edges.push({ id: 'e' + Date.now(), from: connectState.from.id, to: to.id, type: 'seq' });
     to.revealed = true;
     buildTree(); save();
   }

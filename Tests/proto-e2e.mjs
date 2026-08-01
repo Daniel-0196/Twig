@@ -169,7 +169,7 @@ ws.onopen = async () => {
               && e.to === nodes.find(n => n.g.goal.includes('交互定版'))?.id),
   })`));
   check('新关联 v0.2 → 渲染管线 已建立', rewire.toGreen, JSON.stringify(rewire));
-  check('旧出向边被替换（单出向约束）', rewire.oldGone, JSON.stringify(rewire));
+  check('旧出向边保留（支持一出多）', !rewire.oldGone, JSON.stringify(rewire));
 
   // ---- T8 双击线改型 ----
   console.log('T8 双击线改型');
