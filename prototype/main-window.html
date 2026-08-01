@@ -126,6 +126,11 @@
   .r-h { font-size:14px; font-weight:600; margin:4px 0 14px; font-family:Georgia,"Noto Serif SC","Songti SC",serif; }
   .r-h span { font-size:11px; color:#A6A49E; font-weight:400; margin-left:8px;
               font-family:-apple-system,"PingFang SC",sans-serif; }
+  .scopebar { display:flex; gap:6px; margin-bottom:16px; }
+  .scopebar button { background:#FFFFFF; border:1px solid #E8E6DC; color:#73726C;
+                     font-size:11.5px; padding:4px 14px; border-radius:10px; cursor:pointer; }
+  .scopebar button:hover { background:#F5F4EE; color:#1F1E1D; }
+  .scopebar button.on { background:#D97757; border-color:#D97757; color:#fff; }
   .big3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:22px; }
   .big { background:#FFFFFF; border:1px solid #E8E6DC;
          border-radius:14px; padding:16px 18px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
@@ -245,6 +250,7 @@ const H_LABEL = { short:'短期', mid:'中期', long:'长期' };
 const H_SUB = { short:'几周之内', mid:'一两个月', long:'季度以上' };
 const LS_TASKS = 'twig-main-tasks-v1';
 const LS_SETTINGS = 'twig-main-settings-v1';
+const LS_SELECTION = 'twig-main-selection';
 let idSeq = 100;
 const nid = p => p + (idSeq++) + '_' + Date.now().toString(36);
 
@@ -292,6 +298,19 @@ function defaultData() {
 let state = null;
 let sel = { projectId:null, type:null, goalId:null, taskId:null };  // type: 'goal' | 'task' | null
 const expanded = new Set();
+
+function saveSel() {
+  try { localStorage.setItem(LS_SELECTION, JSON.stringify(sel)); } catch (e) {}
+}
+function loadSel() {
+  try {
+    const raw = localStorage.getItem(LS_SELECTION);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s && typeof s === 'object')
+      sel = { projectId: s.projectId ?? null, type: s.type ?? null, goalId: s.goalId ?? null, taskId: s.taskId ?? null };
+  } catch (e) {}
+}
 
 function save() {
   try { localStorage.setItem(LS_TASKS, JSON.stringify(state)); } catch (e) {}
@@ -583,44 +602,80 @@ function renderDetail() {
 /* ================= 任务 tab 整体渲染 ================= */
 function renderAll() {
   if (!state.projects.find(p => p.id === sel.projectId)) sel.projectId = state.projects[0]?.id;
+  saveSel();
   renderProjects();
   renderLanes();
   renderCommits();
   renderDetail();
 }
 
-/* ================= 报表（mock 数据 → JS 渲染） ================= */
+/* ================= 报表（mock 数据 → JS 渲染，分项目） ================= */
 const REPORT = {
-  today: {
-    focusMin: 175, breakMin: 30, doneCount: 4,
-    perProject: [
-      { name:'twig', color:'#d97757', min:120 },
-      { name:'mergeCook4', color:'#7D9B76', min:55 },
-    ],
-    doneTasks: [
-      { title:'修 shader 编译错误', project:'mergeCook4', color:'#7D9B76' },
-      { title:'画板交互：节点拖拽回弹', project:'twig', color:'#d97757' },
-      { title:'主窗口原型三栏布局', project:'twig', color:'#d97757' },
-      { title:'渲染管线 pass 拆分评审', project:'mergeCook4', color:'#7D9B76' },
-    ],
+  twig: {
+    color:'#d97757',
+    today: {
+      focusMin:120, breakMin:20,
+      perGoal:[
+        { name:'v0.2 画板交互', min:80 },
+        { name:'v0.5 交互定版', min:40 },
+      ],
+      doneTasks:[
+        { title:'画板交互：节点拖拽回弹', goal:'v0.2 画板交互' },
+        { title:'主窗口原型三栏布局', goal:'v0.2 画板交互' },
+      ],
+    },
+    week:[ {min:100,done:2},{min:90,done:1},{min:60,done:1},{min:80,done:2},{min:70,done:2},{min:50,done:1},{min:120,done:2} ],
   },
-  week: [
-    { min:150, done:3 }, { min:120, done:2 }, { min:95, done:2 },
-    { min:140, done:4 }, { min:100, done:3 }, { min:80, done:2 },
-    { min:175, done:4 },   // 今天
-  ],
+  mergeCook4: {
+    color:'#7D9B76',
+    today: {
+      focusMin:55, breakMin:10,
+      perGoal:[
+        { name:'渲染管线重构', min:40 },
+        { name:'玩法闭环', min:15 },
+      ],
+      doneTasks:[
+        { title:'修 shader 编译错误', goal:'渲染管线重构' },
+        { title:'渲染管线 pass 拆分评审', goal:'渲染管线重构' },
+      ],
+    },
+    week:[ {min:50,done:1},{min:30,done:1},{min:35,done:1},{min:60,done:2},{min:30,done:1},{min:30,done:1},{min:55,done:2} ],
+  },
 };
+
+let reportScope = 'all';   // 'all' 或项目名；打开报表 tab 时默认跟随当前选中项目
 
 function renderReport() {
   const box = document.getElementById('report');
-  const t = REPORT.today;
-  const maxP = Math.max(...t.perProject.map(x => x.min));
+  const names = state.projects.map(p => p.name).filter(n => REPORT[n]);
+  if (!names.length) { box.innerHTML = '<div class="d-hint">还没有报表数据</div>'; return; }
+  if (reportScope !== 'all' && !names.includes(reportScope)) reportScope = 'all';
+  const useNames = reportScope === 'all' ? names : [reportScope];
+
+  // 聚合今日：大数字、横条（全部=分项目 / 单项目=分目标）、完成清单
+  const today = { focusMin:0, breakMin:0, doneTasks:[], bars:[] };
+  useNames.forEach(n => {
+    const R = REPORT[n];
+    today.focusMin += R.today.focusMin;
+    today.breakMin += R.today.breakMin;
+    R.today.doneTasks.forEach(t => today.doneTasks.push({ ...t, project:n, color:R.color }));
+    if (reportScope === 'all') today.bars.push({ name:n, color:R.color, min:R.today.focusMin });
+    else R.today.perGoal.forEach(g => today.bars.push({ name:g.name, color:R.color, min:g.min }));
+  });
+  const maxB = Math.max(1, ...today.bars.map(x => x.min));
+
+  // 聚合本周：逐日相加
+  const week = REPORT[useNames[0]].week.map((_, i) => ({
+    min: useNames.reduce((s, n) => s + REPORT[n].week[i].min, 0),
+    done: useNames.reduce((s, n) => s + REPORT[n].week[i].done, 0),
+  }));
+
   // 本周日期：周一到周日
   const now = new Date();
   const monday = new Date(now);
   monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
   const wdNames = ['周一','周二','周三','周四','周五','周六','周日'];
-  const days = REPORT.week.map((d, i) => {
+  const days = week.map((d, i) => {
     const dt = new Date(monday); dt.setDate(monday.getDate() + i);
     return { ...d, label:`${wdNames[i]} ${dt.getMonth()+1}/${dt.getDate()}`, isToday: dt.toDateString() === now.toDateString() };
   });
@@ -629,26 +684,30 @@ function renderReport() {
   const fmtMin = m => m >= 60 ? `${Math.floor(m/60)} 小时${m % 60 ? ' ' + (m%60) + ' 分钟' : ''}` : `${m} 分钟`;
 
   box.innerHTML = `
-    <div class="r-h">今日<span>${now.getMonth()+1} 月 ${now.getDate()} 日</span></div>
+    <div class="scopebar">
+      <button data-scope="all" class="${reportScope === 'all' ? 'on' : ''}">全部项目</button>
+      ${names.map(n => `<button data-scope="${esc(n)}" class="${reportScope === n ? 'on' : ''}">${esc(n)}</button>`).join('')}
+    </div>
+    <div class="r-h">今日<span>${now.getMonth()+1} 月 ${now.getDate()} 日 · ${reportScope === 'all' ? '全部项目' : esc(reportScope)}</span></div>
     <div class="big3">
-      <div class="big"><span class="n" style="color:#D97757">${t.focusMin}</span><span class="u">分钟</span><div class="k">今日专注</div></div>
-      <div class="big"><span class="n" style="color:#73726C">${t.breakMin}</span><span class="u">分钟</span><div class="k">今日休息</div></div>
-      <div class="big"><span class="n" style="color:#7D9B76">${t.doneCount}</span><span class="u">项</span><div class="k">完成任务</div></div>
+      <div class="big"><span class="n" style="color:#D97757">${today.focusMin}</span><span class="u">分钟</span><div class="k">今日专注</div></div>
+      <div class="big"><span class="n" style="color:#73726C">${today.breakMin}</span><span class="u">分钟</span><div class="k">今日休息</div></div>
+      <div class="big"><span class="n" style="color:#7D9B76">${today.doneTasks.length}</span><span class="u">项</span><div class="k">完成任务</div></div>
     </div>
     <div class="pbars">
-      <div class="pt">分项目专注时长</div>
-      ${t.perProject.map(x => `
+      <div class="pt">${reportScope === 'all' ? '分项目专注时长' : '分目标专注时长'}</div>
+      ${today.bars.map(x => `
         <div class="pbar">
           <span class="pn"><i style="background:${x.color}"></i>${esc(x.name)}</span>
-          <span class="tr"><i style="width:${Math.round(x.min/maxP*100)}%;background:${x.color}"></i></span>
+          <span class="tr"><i style="width:${Math.round(x.min/maxB*100)}%;background:${x.color}"></i></span>
           <span class="pv">${x.min} 分钟</span>
         </div>`).join('')}
     </div>
     <div class="donelist">
       <div class="pt">今日完成的任务</div>
-      ${t.doneTasks.map(x => `
+      ${today.doneTasks.map(x => `
         <div class="dline"><span class="ok">✓</span><span>${esc(x.title)}</span>
-        <span class="pj" style="color:${x.color}">${esc(x.project)}</span></div>`).join('')}
+        <span class="pj" style="color:${x.color}">${esc(reportScope === 'all' ? x.project : x.goal)}</span></div>`).join('')}
     </div>
     <div class="r-h">本周</div>
     <div class="week">
@@ -660,6 +719,10 @@ function renderReport() {
         </div>`).join('')}
       <div class="wtotal">本周共专注 <b>${Math.floor(totalMin/60)} 小时 ${totalMin % 60} 分钟</b></div>
     </div>`;
+
+  box.querySelectorAll('.scopebar button').forEach(b => {
+    b.onclick = () => { reportScope = b.dataset.scope; renderReport(); };
+  });
 }
 
 /* ================= 设置 ================= */
@@ -756,15 +819,26 @@ document.querySelectorAll('#tabs button').forEach(b => {
     document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
     document.querySelectorAll('.tabpane').forEach(pn => pn.classList.remove('on'));
     document.getElementById('pane-' + b.dataset.tab).classList.add('on');
-    if (b.dataset.tab === 'reports') renderReport();
+    if (b.dataset.tab === 'reports') {
+      // 默认跟随当前选中项目（无报表数据的项目回退到"全部项目"）
+      const pn = curProject()?.name;
+      reportScope = pn && REPORT[pn] ? pn : 'all';
+      renderReport();
+    }
     if (b.dataset.tab === 'settings') renderSettings();
   };
 });
 
 /* ================= 启动 ================= */
-sel.projectId = state.projects[0]?.id;
-const firstGoal = state.projects[0]?.goals[0];
-if (firstGoal) { sel.type = 'goal'; sel.goalId = firstGoal.id; }
+loadSel();
+if (!state.projects.find(p => p.id === sel.projectId)) {
+  sel = { projectId: state.projects[0]?.id, type:null, goalId:null, taskId:null };
+  const firstGoal = state.projects[0]?.goals[0];
+  if (firstGoal) { sel.type = 'goal'; sel.goalId = firstGoal.id; }
+}
+// 校验持久化的选中项仍然存在（目标/任务可能已被删除）
+if (sel.type === 'goal' && !findGoal(sel.goalId)) { sel.type = null; sel.goalId = null; }
+if (sel.type === 'task' && !findTask(sel.taskId)) { sel.type = null; sel.taskId = null; }
 state.projects.forEach(p => p.goals.forEach(g => { if (g.horizon === 'short') expanded.add(g.id); }));
 renderAll();
 renderReport();
