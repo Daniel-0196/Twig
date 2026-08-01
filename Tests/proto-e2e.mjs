@@ -45,6 +45,19 @@ async function nodePos(title) {
     return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2, op: getComputedStyle(el).opacity, cls: el.className});
   })()`).then(v => v ? JSON.parse(v) : null);
 }
+async function dragTree(title, dx, dy, steps = 15) {
+  const np = await nodePos(title);
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: np.x, y: np.y });
+  await sleep(350);
+  const handle = JSON.parse(await evaljs(`(() => {
+    const h = document.querySelector('.acts .act.move');
+    if (!h) return 'null';
+    const r = h.getBoundingClientRect();
+    return JSON.stringify({x: r.x + r.width/2, y: r.y + r.height/2});
+  })()`));
+  await drag(handle, dx, dy, steps);
+  return handle;
+}
 async function drag(from, dx, dy, steps = 15) {
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1 });
   for (let i = 1; i <= steps; i++) {
@@ -95,7 +108,7 @@ ws.onopen = async () => {
 
   // ---- T2 拔树 ----
   console.log('T2 拔树（向上 240px，视口内完成）');
-  await drag(v02a, 0, -260, 8);
+  await dragTree('画板交互', 0, -260, 8);
   await sleep(80);
   const mid1 = JSON.parse(await evaljs(`JSON.stringify(treeOffsets)`));
   check('偏移跟随拖拽（向上为负）', mid1.twig.y < -100, JSON.stringify(mid1));
@@ -135,14 +148,14 @@ ws.onopen = async () => {
   // ---- T6 第二拉：v1.0 才出土（拉力消耗后需重新发力） ----
   console.log('T6 拉力消耗：第二拉 v1.0 出土');
   const v02d0 = await nodePos('画板交互');
-  await drag(v02d0, 0, -260, 8);
+  await dragTree('画板交互', 0, -260, 8);
   await sleep(80);
   const v10c = await nodePos('主力工具');
   check('第一拉后 v1.0 仍埋着（拉力已消耗）', v10c && v10c.cls.includes('offscreen'), JSON.stringify(v10c));
   await mouseUp(v02d0.x, v02d0.y - 260);
   await sleep(700);
   const v02e = await nodePos('画板交互');
-  await drag(v02e, 0, -260, 8);
+  await dragTree('画板交互', 0, -260, 8);
   await sleep(80);
   const v10d = await nodePos('主力工具');
   check('第二拉 v1.0 出土', v10d && !v10d.cls.includes('offscreen'), JSON.stringify(v10d));
