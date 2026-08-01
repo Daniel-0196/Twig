@@ -111,7 +111,7 @@
 </head>
 <body>
 <div class="hint">
-  <b>v10 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
+  <b>v11 · 0801：</b>默认<b>向上拔</b> ｜ <b>重力模型：停手树就往土壤里滑，要持续用力/猛拽才能拽出土</b> ｜ 每棵树独立拔 ｜ 节点出/入挂点、顺序线带箭头、双击线改型、挂点拉线连接 ｜ ＋新增独立节点 ｜ 悬停操作 / 点击详情 / 持久化
 </div>
 <div class="stage" id="stage">
 
@@ -260,21 +260,14 @@ function sanitizeReveal() {
 
 function relayout() {
   const d = DIRS[direction];
-  // 揭示节点可用的主轴跨度（根 → 屏内对边）
-  const span = d.rSign > 0
-    ? (d.axis === 'x' ? RECT.x + RECT.w - d.root : RECT.y + RECT.h - d.root)
-    : (d.axis === 'x' ? d.root - RECT.x : d.root - RECT.y);
-  const slotsFit = Math.max(1, Math.floor(span / GAP));
   sanitizeReveal();
   projects.forEach((p, pi) => {
     const depth = topoDepths(p);
-    // 已揭示：按（深度, chainIndex）排序占槽，换行防溢出
+    // 已揭示：按（深度, chainIndex）排序占槽。树朝土壤长，允许垂出土线，不换行
     const shown = nodes.filter(n => n.p === p && n.cx === undefined && n.revealed)
       .sort((a, b) => (depth.get(a.id) - depth.get(b.id)) || (a.chainIndex - b.chainIndex));
     shown.forEach((n, i) => {
-      const row = Math.floor(i / slotsFit), col = i % slotsFit;
-      setPos(n, col * GAP * spacingOf(n),
-             crossOf(pi) + jitterOf(n) + row * 100);
+      setPos(n, i * GAP * spacingOf(n), crossOf(pi) + jitterOf(n));
     });
     // 未揭示：按深度排序，浅埋的先出土
     const hidden = nodes.filter(n => n.p === p && n.cx === undefined && !n.revealed)
