@@ -3,7 +3,7 @@ import SwiftData
 
 public enum TwigStore {
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
-        let schema = Schema([Project.self, Goal.self, Task.self, TimeEntry.self])
+        let schema = Schema([Project.self, Goal.self, Task.self, TimeEntry.self, Edge.self])
         let config: ModelConfiguration
         if inMemory {
             config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
