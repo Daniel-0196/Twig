@@ -73,14 +73,14 @@ struct TreeCanvasView: View {
             PullPhysics.step(&session, direction: appState.pullDirection)
             appState.pullSession = session
             appState.treeOffset = session.offset
-            // 出土判定：组件内、seq 父已出土、未出土节点；埋深 = |节点主轴坐标 − soil| + 20
+            // 出土判定：组件内、seq 父已出土、未出土节点；buriedDepth 传纯埋深（slack 归 checkReveal 内部）
             let data = appState.goalsAndEdges()
             let base = appState.placements(in: rect)
             let soil = soilLine()
             for g in data.goals where !g.revealed && appState.pullComponent.contains(g.persistentModelID) {
                 if let parent = TreeTopology.parent(of: g, edges: data.edges), !parent.revealed { continue }
                 guard let p = base[g.persistentModelID] else { continue }
-                let buried = (isVertical ? abs(p.y - soil) : abs(p.x - soil)) + 20
+                let buried = isVertical ? abs(p.y - soil) : abs(p.x - soil)
                 if PullPhysics.checkReveal(&session, direction: appState.pullDirection, buriedDepth: buried) {
                     appState.pullSession = session
                     appState.reveal(g)
