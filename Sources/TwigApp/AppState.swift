@@ -63,6 +63,7 @@ final class AppState {
     }
 
     func start() {
+        migrateRevealFlags()
         recoverUnclosedEntries()
         watchInbox()
         handleInboxWrite()
@@ -166,7 +167,102 @@ final class AppState {
         widgetState = .collapsed
     }
 
+    // MARK: - 拔树画板状态
+    var pullDirection: PullDirection = {
+        if let raw = UserDefaults.standard.string(forKey: "twig.pullDirection"),
+           let d = PullDirection(rawValue: raw) { return d }
+        return .down
+    }() {
+        didSet { UserDefaults.standard.set(pullDirection.rawValue, forKey: "twig.pullDirection") }
+    }
+    var pullSession: PullSession?
+    var pullComponent: Set<PersistentIdentifier> = []
+    var pullDepths: [PersistentIdentifier: Int] = [:]
+    var pullProject: Project?
+    var hoveredGoal: Goal?
+    var treeOffset: CGSize = .zero
+
+    func goalsAndEdges() -> (goals: [Goal], edges: [Edge]) {
+        let ctx = container.mainContext
+        let goals = (try? ctx.fetch(FetchDescriptor<Goal>())) ?? []
+        let edges = (try? ctx.fetch(FetchDescriptor<Edge>())) ?? []
+        return (goals, edges)
+    }
+
+    func placements(in rect: CGRect) -> [PersistentIdentifier: CGPoint] {
+        let (goals, edges) = goalsAndEdges()
+        return TreeLayout.place(goals: goals, edges: edges, rect: rect, direction: pullDirection)
+    }
+
+    func reveal(_ goal: Goal) {
+        goal.revealed = true
+        let (goals, edges) = goalsAndEdges()
+        TreeTopology.sanitizeReveal(goals: goals, edges: edges)
+        try? container.mainContext.save()
+        exportSnapshot()
+    }
+
+    func setCustomPosition(_ goal: Goal, x: CGFloat, y: CGFloat) {
+        goal.customX = x
+        goal.customY = y
+        try? container.mainContext.save()
+    }
+
+    func resetTree(_ project: Project) {
+        for g in project.goals {
+            g.revealed = (g.horizon == .short)
+            g.customX = nil
+            g.customY = nil
+        }
+        treeOffset = .zero
+        try? container.mainContext.save()
+        exportSnapshot()
+    }
+
+    func addEdge(from: Goal, to: Goal) {
+        guard from.persistentModelID != to.persistentModelID else { return }
+        let (_, edges) = goalsAndEdges()
+        let dup = edges.contains {
+            $0.type == .sequence
+            && $0.from?.persistentModelID == from.persistentModelID
+            && $0.to?.persistentModelID == to.persistentModelID
+        }
+        if !dup {
+            container.mainContext.insert(Edge(type: .sequence, from: from, to: to))
+            try? container.mainContext.save()
+        }
+    }
+
+    func toggleEdgeType(_ edge: Edge) {
+        edge.type = edge.type == .sequence ? .reference : .sequence
+        try? container.mainContext.save()
+    }
+
+    func deleteGoalTree(_ goal: Goal) {
+        container.mainContext.delete(goal)   // 边级联删除
+        try? container.mainContext.save()
+        exportSnapshot()
+    }
+
+    func addGoalNode(near: Goal, title: String) {
+        guard let project = near.project else { return }
+        taskStore.addGoal(to: project, title: title, horizon: near.horizon, targetDate: nil)
+        exportSnapshot()
+    }
+
     // MARK: - 私有
+
+    /// 迁移：首次升级后，为短期目标补 revealed=true
+    private func migrateRevealFlags() {
+        let ctx = container.mainContext
+        guard let all = try? ctx.fetch(FetchDescriptor<Goal>()) else { return }
+        var touched = false
+        for g in all where g.horizon == .short && !g.revealed {
+            g.revealed = true
+            touched = true
+        }
+        if touched { try? ctx.save() }
+    }
 
     private func recoverUnclosedEntries() {
         let ctx = container.mainContext

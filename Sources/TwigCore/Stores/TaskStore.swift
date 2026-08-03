@@ -23,6 +23,7 @@ public final class TaskStore {
     public func addGoal(to project: Project, title: String, horizon: Horizon, targetDate: Date?) -> Goal {
         let next = (project.goals.map(\.sortOrder).max() ?? 0) + Self.orderStep
         let g = Goal(title: title, horizon: horizon, targetDate: targetDate, sortOrder: next)
+        g.revealed = (horizon == .short)   // 短期目标默认在屏内
         g.project = project
         ctx.insert(g)
         try? ctx.save()
