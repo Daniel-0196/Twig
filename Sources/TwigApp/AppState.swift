@@ -181,6 +181,10 @@ final class AppState {
     var pullProject: Project?
     var hoveredGoal: Goal?
     var treeOffset: CGSize = .zero
+    /// 松手瞬间的 treeOffset（回弹动画起点，由 TreeCanvasView.endPull 记录）
+    var springStartOffset: CGSize = .zero
+    /// 节点拖动中锁定悬停（HoverHud 尊重它：拖动时隐藏 HUD）
+    var hoverLockedForDrag = false
 
     func goalsAndEdges() -> (goals: [Goal], edges: [Edge]) {
         let ctx = container.mainContext
