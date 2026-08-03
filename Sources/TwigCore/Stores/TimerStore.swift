@@ -48,6 +48,18 @@ public final class TimerStore {
         handle(event)
     }
 
+    /// 删除任务（或其所属目标树）前的守卫：进行中的番茄正常停止（保留已计时段）；
+    /// 休息态 engine.stop 是 no-op，activeTask 会悬挂指向已删模型（读属性即 trap），故直接摘掉
+    public func releaseIfActive(_ task: Task) {
+        guard activeTask?.persistentModelID == task.persistentModelID else { return }
+        stop(discard: false)
+        if activeTask != nil {
+            activeTask = nil
+            pendingCompletionCheck = false
+            onStateChange?()
+        }
+    }
+
     public func stop(discard: Bool) {
         guard let event = engine.stop(discard: discard) else { return }
         if discard, let entry = activeEntry {

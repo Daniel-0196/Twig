@@ -109,7 +109,7 @@ final class AppState {
     var springStartOffset: CGSize = .zero
     /// 节点拖动中锁定悬停（HoverHud 尊重它：拖动时隐藏 HUD）
     var hoverLockedForDrag = false
-    /// 悬停 HUD ＋按下：在该节点附近内联输入新节点（输入卡由后续任务渲染）
+    /// 悬停 HUD ＋按下：在该节点附近内联输入新节点（输入卡由 TreeCanvasView 渲染）
     var addingNodeNear: Goal?
     /// 叶子点击：任务详情弹卡（task + 所属 goal），TaskLeafPopover 读取
     var leafTask: (TwigCore.Task, Goal)?
@@ -173,15 +173,24 @@ final class AppState {
     }
 
     func deleteGoalTree(_ goal: Goal) {
+        // 番茄挂在这棵树的任务上：先正常停止（保留已计时段），否则 activeTask 悬挂读已删模型会 trap
+        if let active = timerStore.activeTask, active.goal?.persistentModelID == goal.persistentModelID {
+            timerStore.releaseIfActive(active)
+        }
+        // 同理由：详情弹卡 / 内联输入卡不能继续引用已删目标
+        if leafTask?.1.persistentModelID == goal.persistentModelID { leafTask = nil }
+        if addingNodeNear?.persistentModelID == goal.persistentModelID { addingNodeNear = nil }
         container.mainContext.delete(goal)   // 边级联删除
         try? container.mainContext.save()
         exportSnapshot()
     }
 
-    func addGoalNode(near: Goal, title: String) {
-        guard let project = near.project else { return }
-        taskStore.addGoal(to: project, title: title, horizon: near.horizon, targetDate: nil)
+    @discardableResult
+    func addGoalNode(near: Goal, title: String) -> Goal? {
+        guard let project = near.project else { return nil }
+        let goal = taskStore.addGoal(to: project, title: title, horizon: near.horizon, targetDate: nil)
         exportSnapshot()
+        return goal
     }
 
     // MARK: - 私有

@@ -33,6 +33,8 @@ struct TaskLeafPopover: View {
                     leafAction("🗑", color: .secondary, help: "删除任务") {
                         // 必须 delete 模型本身：只从 goal.tasks 摘掉会留下孤儿行，
                         // 继续出现在 TaskStore.incompleteTasks()/今日任务/Peek/报表里
+                        // 番茄正挂在这个任务上：先正常停止（保留已计时段），否则 activeTask 悬挂会 trap
+                        appState.timerStore.releaseIfActive(task)
                         appState.container.mainContext.delete(task)
                         try? appState.container.mainContext.save()
                         appState.leafTask = nil

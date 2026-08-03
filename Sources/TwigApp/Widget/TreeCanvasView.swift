@@ -12,11 +12,16 @@ struct TreeCanvasView: View {
     private final class PhysicsBox {
         var lastTickDate: Date?
         var springT: CGFloat?   // 回弹进行中（0→1）
+        var pullGrabOffset: CGSize = .zero   // 本次拔树起手时的树偏移（回弹半途续拔用）
     }
 
     @State private var physics = PhysicsBox()
     @State private var movingGoal: Goal?
     @State private var dragOrigin: CGPoint?
+    /// 节点拖动进入时的 custom 状态（微拖 < 8pt 松手要还原，不钉死自动布局）
+    @State private var dragSavedCustom: (x: Double?, y: Double?)?
+    @State private var newNodeTitle = ""
+    @FocusState private var addFieldFocused: Bool
 
     private var rect: CGRect { CGRect(origin: .zero, size: size) }
     private var isVertical: Bool {
@@ -32,7 +37,15 @@ struct TreeCanvasView: View {
             // 布局包围盒（只算可见节点：已出土 + 手动摆放； buried 节点在画布外不算），
             // 变化时回写 AppState，TreeWidgetController 据此扩/收窗
             let bounds = contentBounds(goals: data.goals)
+            let buriedCount = data.goals.filter { !$0.revealed }.count
             ZStack(alignment: .topLeading) {
+                // 空白命中层（垫底）：点空白关闭详情弹卡 / 内联输入卡
+                Color.white.opacity(0.001)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        appState.leafTask = nil
+                        appState.addingNodeNear = nil
+                    }
                 StemEdgeCanvas(edges: data.edges,
                                positions: positions,
                                direction: appState.pullDirection,
@@ -58,11 +71,79 @@ struct TreeCanvasView: View {
                          onPullStart: startPull, onPullDrag: pullDrag, onPullEnd: endPull,
                          onHudHover: hudHover, onLinkingChanged: linkingChanged)
                 TaskLeafPopover(appState: appState, positions: positions)
+                // 埋土提示：土线侧一行灰字（仅当还有未出土节点）
+                if buriedCount > 0 {
+                    Text("土里还有 \(buriedCount) 个目标")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .position(buriedHintPos())
+                }
+                // HUD ＋ 的内联输入卡：anchor 节点下方，Enter 创建，Esc/失焦取消
+                if let anchor = appState.addingNodeNear,
+                   let anchorFrame = positions[anchor.persistentModelID] {
+                    addNodeCard(anchor: anchor, frame: anchorFrame)
+                }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .onExitCommand {
+                appState.leafTask = nil
+                appState.addingNodeNear = nil
+            }
+            .onChange(of: appState.addingNodeNear?.persistentModelID) { _, _ in
+                newNodeTitle = ""   // 换锚点/重新打开都从空标题起
+            }
             .onChange(of: bounds, initial: true) { _, newValue in
                 appState.reportedTreeBounds = newValue
             }
+        }
+    }
+
+    // MARK: - 内联新增节点卡（HUD ＋ 按钮的消费者）
+
+    @ViewBuilder
+    private func addNodeCard(anchor: Goal, frame: CGRect) -> some View {
+        TextField("新分支名，Enter 创建", text: $newNodeTitle)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(width: 200)
+            .background(.white.opacity(0.85))
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(red: 0.91, green: 0.90, blue: 0.86).opacity(0.9), lineWidth: 1))
+            .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+            .focused($addFieldFocused)
+            .onSubmit { commitAddNode(near: anchor) }
+            .onExitCommand { cancelAddNode() }
+            .onChange(of: addFieldFocused) { _, focused in
+                // 失焦即关闭（卡片是有焦点的临时态；提交/取消本身幂等，重复清场无害）
+                if !focused { cancelAddNode() }
+            }
+            .position(x: frame.midX, y: frame.maxY + 64)
+            .onAppear { addFieldFocused = true }
+    }
+
+    private func commitAddNode(near anchor: Goal) {
+        let title = newNodeTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, let newGoal = appState.addGoalNode(near: anchor, title: title) {
+            appState.reveal(newGoal)   // 新节点立刻出土可见（短期默认已 revealed，reveal 幂等）
+        }
+        cancelAddNode()
+    }
+
+    private func cancelAddNode() {
+        newNodeTitle = ""
+        appState.addingNodeNear = nil
+    }
+
+    /// 埋土提示位置：随 pullDirection 贴土线侧
+    private func buriedHintPos() -> CGPoint {
+        switch appState.pullDirection {
+        case .up:    return CGPoint(x: rect.midX, y: rect.maxY - 12)
+        case .down:  return CGPoint(x: rect.midX, y: rect.minY + 12)
+        case .left:  return CGPoint(x: rect.minX + 48, y: rect.midY)
+        case .right: return CGPoint(x: rect.maxX - 48, y: rect.midY)
         }
     }
 
@@ -214,14 +295,24 @@ struct TreeCanvasView: View {
                     let base = basePos(of: goal)
                     dragOrigin = CGPoint(x: goal.customX.map { CGFloat($0) } ?? base.x,
                                          y: goal.customY.map { CGFloat($0) } ?? base.y)
+                    dragSavedCustom = (goal.customX, goal.customY)   // 微拖松手要还原
                     appState.hoverLockedForDrag = true   // 拖动时隐藏 HUD
                 }
                 guard let origin = dragOrigin else { return }
                 goal.customX = Double(origin.x + value.translation.width)
                 goal.customY = Double(origin.y + value.translation.height)
             }
-            .onEnded { _ in
-                appState.setCustomPosition(goal, x: CGFloat(goal.customX ?? 0), y: CGFloat(goal.customY ?? 0))
+            .onEnded { value in
+                let dist = hypot(value.translation.width, value.translation.height)
+                if dist < 8 {
+                    // 微拖不钉死自动布局：还原进入拖动前的 custom 状态（可能原本就是 nil）
+                    goal.customX = dragSavedCustom?.x
+                    goal.customY = dragSavedCustom?.y
+                    try? appState.container.mainContext.save()
+                } else {
+                    appState.setCustomPosition(goal, x: CGFloat(goal.customX ?? 0), y: CGFloat(goal.customY ?? 0))
+                }
+                dragSavedCustom = nil
                 movingGoal = nil
                 dragOrigin = nil
                 appState.hoverLockedForDrag = false
@@ -284,13 +375,20 @@ struct TreeCanvasView: View {
         appState.pullComponent = comp.ids
         appState.pullDepths = comp.depths
         appState.pullProject = goal.project
-        appState.pullSession = PullSession()
+        var session = PullSession()
+        // 回弹半途再拔：新 session 从当前树偏移续起（offset 与 target 同起点），避免瞬移
+        session.offset = appState.treeOffset
+        session.targetOffset = appState.treeOffset
+        appState.pullSession = session
+        physics.pullGrabOffset = appState.treeOffset
     }
 
     // HUD 把手 DragGesture.onChanged 调这个：
     private func pullDrag(_ translation: CGSize) {
         guard var session = appState.pullSession else { return }
-        session.targetOffset = CGSize(width: translation.width * 0.9, height: translation.height * 0.9)
+        let grab = physics.pullGrabOffset
+        session.targetOffset = CGSize(width: grab.width + translation.width * 0.9,
+                                      height: grab.height + translation.height * 0.9)
         appState.pullSession = session
     }
 

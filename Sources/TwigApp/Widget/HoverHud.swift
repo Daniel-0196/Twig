@@ -24,7 +24,7 @@ struct HoverHud: View {
                 // 上排功能钮
                 HStack(spacing: 6) {
                     hudButton("＋", color: Color(red: 0.49, green: 0.61, blue: 0.46), help: "新增分支") {
-                        appState.addingNodeNear = goal   // 内联输入卡由后续任务渲染
+                        appState.addingNodeNear = goal   // TreeCanvasView 在该节点旁渲染内联输入卡
                     }
                     hudButton("🗑", color: .secondary, help: "删除") {
                         appState.hoveredGoal = nil   // 先清悬停，避免悬停目标指向已删模型
