@@ -185,6 +185,10 @@ final class AppState {
     var springStartOffset: CGSize = .zero
     /// 节点拖动中锁定悬停（HoverHud 尊重它：拖动时隐藏 HUD）
     var hoverLockedForDrag = false
+    /// 悬停 HUD ＋按下：在该节点附近内联输入新节点（输入卡由后续任务渲染）
+    var addingNodeNear: Goal?
+    /// 叶子点击：任务详情弹卡（task + 所属 goal），TaskLeafPopover 读取
+    var leafTask: (TwigCore.Task, Goal)?
 
     func goalsAndEdges() -> (goals: [Goal], edges: [Edge]) {
         let ctx = container.mainContext

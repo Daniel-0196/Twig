@@ -48,13 +48,13 @@ struct TreeCanvasView: View {
                             // 出土时"从土里滑入槽位"（revealed 翻转的那一帧才动画，拔树逐帧不插值）
                             .animation(.spring(duration: 0.45, bounce: 0.2), value: goal.revealed)
                             .gesture(nodeDrag(goal))
-                            .onHover { inside in
-                                appState.hoveredGoal = inside ? goal : (appState.hoveredGoal == goal ? nil : appState.hoveredGoal)
-                            }
+                            .onHover { inside in nodeHover(goal, inside: inside) }
                     }
                 }
-                // Task 9 接入：HoverHud(appState:positions:onPullStart:onPullDrag:onPullEnd:)
-                // 三个回调已在本视图实现：startPull(_:) / pullDrag(_:) / endPull()
+                HoverHud(appState: appState, positions: positions,
+                         onPullStart: startPull, onPullDrag: pullDrag, onPullEnd: endPull,
+                         onHudHover: hudHover, onLinkingChanged: linkingChanged)
+                TaskLeafPopover(appState: appState, positions: positions)
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
@@ -208,7 +208,49 @@ struct TreeCanvasView: View {
         appState.placements(in: rect)[goal.persistentModelID] ?? .zero
     }
 
-    // MARK: - 拔树入口（Task 9 HoverHud 的 ⇄ 把手回调，届时接线）
+    // MARK: - 悬停防抖（180ms：节点 → HUD 之间留路；拔树/拉线期间悬停上下文锁定）
+
+    /// 悬停防抖的暂存（引用类型，理由同 PhysicsBox：onHover 在 body 求值外触发，
+    /// 但延迟清场的 Task 闭包里读它不能是 @State 值拷贝）
+    private final class HoverBox {
+        var gen = 0          // 悬停事件代次：每次进出 +1，过期代次的延迟清场自动作废
+        var linking = false  // 挂点拉线进行中：悬停锁定在源节点，经过的节点不抢悬停
+    }
+
+    @State private var hoverBox = HoverBox()
+
+    private func nodeHover(_ goal: Goal, inside: Bool) {
+        if hoverBox.linking { return }                          // 拉线经过的节点不抢悬停
+        if inside && appState.pullSession != nil { return }     // 拔树中不切悬停目标
+        hoverBox.gen &+= 1
+        if inside {
+            appState.hoveredGoal = goal
+        } else {
+            scheduleHoverClear(gen: hoverBox.gen)
+        }
+    }
+
+    /// HUD 自身悬停：进入即作废待执行的清场（节点 → HUD 的 5px 间隙靠这个跨过）
+    private func hudHover(_ inside: Bool) {
+        hoverBox.gen &+= 1
+        if !inside { scheduleHoverClear(gen: hoverBox.gen) }
+    }
+
+    private func linkingChanged(_ linking: Bool) {
+        hoverBox.linking = linking
+        hoverBox.gen &+= 1
+    }
+
+    private func scheduleHoverClear(gen: Int) {
+        let box = hoverBox
+        _Concurrency.Task { @MainActor in
+            try? await _Concurrency.Task.sleep(for: .milliseconds(180))
+            guard box.gen == gen, !box.linking, appState.pullSession == nil else { return }
+            appState.hoveredGoal = nil
+        }
+    }
+
+    // MARK: - 拔树入口（HoverHud 的 ⇄ 把手回调）
 
     private func startPull(_ goal: Goal) {
         physics.springT = nil   // 打断进行中的回弹
