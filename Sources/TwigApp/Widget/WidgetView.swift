@@ -19,6 +19,10 @@ struct WidgetView: View {
             .onChange(of: context.date) { appState.timerStore.tick() }
             .onChange(of: appState.widgetMode) { _, _ in controller.applyLayout() }
             .onChange(of: appState.pullDirection) { _, _ in controller.applyLayout() }
+            .onChange(of: appState.peekListVisible) { _, visible in
+                // 展开瞬间立即扩窗（浮层区域须在窗口内才收得到悬停事件）；收回时动画缩回
+                controller.applyLayout(animated: !visible)
+            }
             .onChange(of: appState.reportedTreeBounds) { _, _ in
                 // 节点包围盒变化 → 树画板态按需扩/收窗
                 if appState.widgetMode == .tree { controller.applyLayout() }

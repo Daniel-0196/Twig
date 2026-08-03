@@ -27,9 +27,14 @@ final class TreeWidgetController {
     func applyLayout(animated: Bool = true) {
         switch appState.widgetMode {
         case .folded:
-            window.resize(toWidth: 560,
-                          height: CollapsedBarView.barHeight(for: appState.pullDirection),
-                          animated: animated)
+            var height = CollapsedBarView.barHeight(for: appState.pullDirection)
+            if appState.peekListVisible {
+                // 今日浮层滑出：窗口向下扩高容纳（顶边不动）
+                let rows = min(PeekListView.maxRows,
+                               appState.taskStore.tasksForToday(on: Date()).count)
+                height += PeekListView.height(forRowCount: rows) + 6
+            }
+            window.resize(toWidth: 560, height: height, animated: animated)
         case .tree:
             window.resizeToFit(content: fittedContentSize(), animated: animated)
         }

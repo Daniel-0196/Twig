@@ -5,6 +5,8 @@ import TwigCore
 /// 每个有未完成目标的项目一条虚线，末端一个项目色空心小圆
 struct CollapsedBarView: View {
     let appState: AppState
+    /// 悬停显隐协调票号：每次进出 +1，延迟收回时只认最新票（跨过横条→浮层间隙不闪收）
+    @State private var hoverTicket = 0
 
     /// 折叠态总高：纵向出土方向时虚线在横条上/下方，需要更高
     static func barHeight(for direction: PullDirection) -> CGFloat {
@@ -99,6 +101,32 @@ struct CollapsedBarView: View {
             RoundedRectangle(cornerRadius: 22)
                 .stroke(.white.opacity(0.6), lineWidth: 1)
         )
+        .onHover { peekHover($0) }
+        .overlay(alignment: .top) {
+            // 今日浮层：贴横条下缘滑出，不占布局（折叠态窗口由 controller 扩高容纳）
+            GeometryReader { geo in
+                if appState.peekListVisible {
+                    PeekListView(appState: appState, onHoverChange: peekHover)
+                        .offset(y: geo.size.height + 6)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: appState.peekListVisible)
+    }
+
+    /// 悬停进出（横条与浮层共用）：进入即开，离开延迟 180ms 收回——
+    /// 期间若进入另一方（票号失效）则保持展开
+    private func peekHover(_ inside: Bool) {
+        hoverTicket &+= 1
+        let ticket = hoverTicket
+        if inside {
+            appState.peekListVisible = true
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                if ticket == hoverTicket { appState.peekListVisible = false }
+            }
+        }
     }
 
     private var activeColorHex: String {

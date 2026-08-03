@@ -113,6 +113,8 @@ final class AppState {
     var addingNodeNear: Goal?
     /// 叶子点击：任务详情弹卡（task + 所属 goal），TaskLeafPopover 读取
     var leafTask: (TwigCore.Task, Goal)?
+    /// 悬停横条滑出今日任务清单（PeekListView 显隐；折叠态窗口随之扩高）
+    var peekListVisible = false
 
     func goalsAndEdges() -> (goals: [Goal], edges: [Edge]) {
         let ctx = container.mainContext
