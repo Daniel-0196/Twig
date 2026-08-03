@@ -215,6 +215,7 @@ struct TreeCanvasView: View {
     private final class HoverBox {
         var gen = 0          // 悬停事件代次：每次进出 +1，过期代次的延迟清场自动作废
         var linking = false  // 挂点拉线进行中：悬停锁定在源节点，经过的节点不抢悬停
+        var onHud = false    // 光标在 HUD 上（进出事件顺序无保证，清场时以此兜底）
     }
 
     @State private var hoverBox = HoverBox()
@@ -232,6 +233,7 @@ struct TreeCanvasView: View {
 
     /// HUD 自身悬停：进入即作废待执行的清场（节点 → HUD 的 5px 间隙靠这个跨过）
     private func hudHover(_ inside: Bool) {
+        hoverBox.onHud = inside
         hoverBox.gen &+= 1
         if !inside { scheduleHoverClear(gen: hoverBox.gen) }
     }
@@ -245,7 +247,7 @@ struct TreeCanvasView: View {
         let box = hoverBox
         _Concurrency.Task { @MainActor in
             try? await _Concurrency.Task.sleep(for: .milliseconds(180))
-            guard box.gen == gen, !box.linking, appState.pullSession == nil else { return }
+            guard box.gen == gen, !box.linking, !box.onHud, appState.pullSession == nil else { return }
             appState.hoveredGoal = nil
         }
     }
