@@ -2,13 +2,24 @@ import SwiftUI
 import SwiftData
 import TwigCore
 
-/// 今日 / 本周：TimeEntry 聚合 + 已完成任务
+/// 今日 / 本周：TimeEntry 聚合 + 已完成任务；支持按项目切换范围
 struct ReportsView: View {
     let appState: AppState
+    @Binding var scopeProject: String?   // nil = 全部项目；否则项目名
     @State private var scope = 0   // 0=今日 1=本周
 
     var body: some View {
         VStack {
+            Picker("范围", selection: $scopeProject) {
+                Text("全部项目").tag(String?.none)
+                ForEach(appState.taskStore.allProjects(), id: \.persistentModelID) { project in
+                    Text(project.name).tag(String?.some(project.name))
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top)
+
             Picker("", selection: $scope) {
                 Text("今日").tag(0)
                 Text("本周").tag(1)
@@ -17,12 +28,18 @@ struct ReportsView: View {
             .padding()
 
             let ctx = appState.container.mainContext
-            let entries = (try? ctx.fetch(FetchDescriptor<TimeEntry>())) ?? []
-            let tasks = (try? ctx.fetch(FetchDescriptor<TwigCore.Task>())) ?? []
+            let allEntries = (try? ctx.fetch(FetchDescriptor<TimeEntry>())) ?? []
+            let allTasks = (try? ctx.fetch(FetchDescriptor<TwigCore.Task>())) ?? []
+            let entries = scopeProject == nil ? allEntries
+                : allEntries.filter { $0.task?.goal?.project?.name == scopeProject }
+            let tasks = scopeProject == nil ? allTasks
+                : allTasks.filter { $0.goal?.project?.name == scopeProject }
 
             if scope == 0 {
                 let report = ReportAggregator.dayReport(day: Date(), entries: entries, tasks: tasks)
-                DayReportCard(report: report)
+                DayReportCard(report: report,
+                              breakdownTitle: scopeProject == nil ? "分项目专注" : "分目标专注",
+                              breakdown: focusBreakdown(entries: entries))
             } else {
                 let week = ReportAggregator.weekReport(containing: Date(), entries: entries, tasks: tasks)
                 List(week, id: \.day) { report in
@@ -42,10 +59,28 @@ struct ReportsView: View {
             Spacer()
         }
     }
+
+    /// 今日专注分布：全部范围按项目聚合；单项目范围按目标聚合
+    private func focusBreakdown(entries: [TimeEntry]) -> [(name: String, minutes: Int)] {
+        let calendar = Calendar.current
+        var minutes: [String: Int] = [:]
+        for entry in entries where calendar.isDate(entry.startedAt, inSameDayAs: Date()) {
+            guard entry.kind == .pomodoro || entry.kind == .stopwatch else { continue }
+            let key = scopeProject == nil
+                ? entry.task?.goal?.project?.name
+                : entry.task?.goal?.title
+            if let key {
+                minutes[key, default: 0] += Int(entry.duration / 60)
+            }
+        }
+        return minutes.sorted { $0.value > $1.value }.map { (name: $0.key, minutes: $0.value) }
+    }
 }
 
 struct DayReportCard: View {
     let report: DayReport
+    var breakdownTitle: String = "分项目专注"
+    var breakdown: [(name: String, minutes: Int)] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -54,13 +89,16 @@ struct DayReportCard: View {
                 VStack { Text("\(report.breakMinutes)").font(.largeTitle); Text("休息分钟").font(.caption) }
                 VStack { Text("\(report.completedTaskTitles.count)").font(.largeTitle); Text("完成任务").font(.caption) }
             }
-            if !report.perProjectFocus.isEmpty {
+            if !breakdown.isEmpty {
                 Divider()
-                ForEach(report.perProjectFocus.sorted(by: { $0.value > $1.value }), id: \.key) { name, minutes in
+                Text(breakdownTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(breakdown, id: \.name) { item in
                     HStack {
-                        Text(name)
+                        Text(item.name)
                         Spacer()
-                        Text("\(minutes) 分钟").foregroundStyle(.secondary)
+                        Text("\(item.minutes) 分钟").foregroundStyle(.secondary)
                     }
                 }
             }

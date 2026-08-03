@@ -4,6 +4,7 @@ import TwigCore
 struct MainWindowView: View {
     let appState: AppState
     @State private var selectedProject: Project?
+    @State private var scopeProject: String? = nil   // 报表范围，与侧边栏选中项目联动
     @State private var showingReports = false
     @State private var showingSettings = false
 
@@ -33,12 +34,23 @@ struct MainWindowView: View {
             }
         }
         .sheet(isPresented: $showingReports) {
-            ReportsView(appState: appState)
+            ReportsView(appState: appState, scopeProject: $scopeProject)
                 .frame(minWidth: 560, minHeight: 420)
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView(appState: appState)
                 .frame(width: 480, height: 480)
+        }
+        .onAppear {
+            guard selectedProject == nil else { return }
+            if let name = UserDefaults.standard.string(forKey: "twig.selectedProject") {
+                selectedProject = appState.taskStore.allProjects().first { $0.name == name }
+                scopeProject = selectedProject?.name
+            }
+        }
+        .onChange(of: selectedProject) { _, project in
+            UserDefaults.standard.set(project?.name, forKey: "twig.selectedProject")
+            scopeProject = project?.name   // 报表范围联动
         }
     }
 }
