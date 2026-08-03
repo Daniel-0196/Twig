@@ -1,17 +1,20 @@
 import SwiftUI
 import TwigCore
 
-/// 紧凑横条：当前任务 + 计时 + 进度；末梢画向外延展的虚线（方向跟随枝干方向）。
-/// 每个有未完成目标的项目一条虚线，末端一个项目色空心小圆——悬停虚线/小圆区域即展开枝干
+/// 紧凑横条：当前任务 + 计时 + 折叠钮；折叠态在末梢画向外延展的虚线（朝向跟随出土方向）。
+/// 每个有未完成目标的项目一条虚线，末端一个项目色空心小圆
 struct CollapsedBarView: View {
     let appState: AppState
 
-    /// 收起态总高：纵向方向时虚线在横条上/下方，需要更高
-    static func barHeight(for direction: BranchDirection) -> CGFloat {
-        direction.isVertical ? 112 : 64
+    /// 折叠态总高：纵向出土方向时虚线在横条上/下方，需要更高
+    static func barHeight(for direction: PullDirection) -> CGFloat {
+        switch direction {
+        case .up, .down: return 112
+        case .left, .right: return 64
+        }
     }
 
-    /// 有未完成目标的项目（与枝干布局一致），每个项目一个末梢把柄
+    /// 有未完成目标的项目，每个项目一个末梢把柄
     private var branchColors: [String] {
         appState.taskStore.allProjects()
             .filter { $0.goals.contains { !$0.isDone } }
@@ -19,17 +22,19 @@ struct CollapsedBarView: View {
     }
 
     var body: some View {
-        let dashed = DashedExtensionView(direction: appState.branchTuning.direction,
+        if appState.widgetMode == .folded {
+            foldedBody
+        } else {
+            bar
+        }
+    }
+
+    /// 折叠态：横条 + 方向化虚线末梢
+    private var foldedBody: some View {
+        let dashed = DashedExtensionView(direction: appState.pullDirection,
                                          handles: branchColors)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                // 悬停虚线/末梢圆区域 → 展开枝干（画板态）；展开后经过该区域不改变状态
-                if hovering, appState.widgetState != .expanded {
-                    appState.widgetState = .expanded
-                }
-            }
-        Group {
-            switch appState.branchTuning.direction {
+        return Group {
+            switch appState.pullDirection {
             case .right:
                 HStack(spacing: 0) { bar; dashed.frame(width: 160) }
             case .left:
@@ -40,7 +45,7 @@ struct CollapsedBarView: View {
                 VStack(spacing: 0) { dashed.frame(height: 48); bar }
             }
         }
-        .frame(width: 560, height: Self.barHeight(for: appState.branchTuning.direction))
+        .frame(width: 560, height: Self.barHeight(for: appState.pullDirection))
     }
 
     /// 横条本体（内容不随方向变化）
@@ -73,6 +78,18 @@ struct CollapsedBarView: View {
                     .monospacedDigit()
                     .foregroundStyle(Color(hex: "#D97757") ?? .orange)
             }
+            // 折叠钮：▾ 收成横条 / ▸ 展开树画板
+            Button {
+                appState.widgetMode = appState.widgetMode == .tree ? .folded : .tree
+            } label: {
+                Image(systemName: appState.widgetMode == .tree ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(appState.widgetMode == .tree ? "折叠成横条" : "展开树画板")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
@@ -82,13 +99,6 @@ struct CollapsedBarView: View {
             RoundedRectangle(cornerRadius: 22)
                 .stroke(.white.opacity(0.6), lineWidth: 1)
         )
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            // 悬停横条 → 今日清单；仅收起态触发，展开态指针经过横条不掉回 peek
-            if hovering, appState.widgetState == .collapsed {
-                appState.widgetState = .peeked
-            }
-        }
     }
 
     private var activeColorHex: String {
@@ -113,10 +123,10 @@ struct CollapsedBarView: View {
     }
 }
 
-/// 横条末梢的虚线外延，方向跟随枝干方向。
-/// 每个项目一条虚线，末端一个项目色空心小圆（悬停把柄）；无项目时退化为两条装饰虚线
+/// 横条末梢的虚线外延，朝向跟随出土方向。
+/// 每个项目一条虚线，末端一个项目色空心小圆；无项目时退化为两条装饰虚线
 struct DashedExtensionView: View {
-    let direction: BranchDirection
+    let direction: PullDirection
     /// 项目色 hex 列表（有未完成目标的项目）
     let handles: [String]
 
@@ -152,7 +162,7 @@ struct DashedExtensionView: View {
                 ctx.stroke(path, with: .color(lineColor),
                            style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 6]))
                 if let hex, let color = Color(hex: hex) {
-                    // 末梢空心小圆：项目色描边 + 半透明填充，约 10pt，作为可悬停的把柄
+                    // 末梢空心小圆：项目色描边 + 半透明填充，约 10pt
                     let circle = Path(ellipseIn: CGRect(x: end.x - 5, y: end.y - 5, width: 10, height: 10))
                     ctx.fill(circle, with: .color(.white.opacity(0.25)))
                     ctx.stroke(circle, with: .color(color.opacity(0.85)), lineWidth: 1.5)

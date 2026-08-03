@@ -7,18 +7,20 @@ struct SettingsView: View {
     @State private var config = TimerConfig.load()
     @State private var badLineCount = 0
     @State private var loginItem = false
-    @AppStorage("twig.branchDirection") private var branchDirection = BranchDirection.right.rawValue
 
     var body: some View {
         Form {
             Section("枝干") {
-                Picker("延展方向", selection: $branchDirection) {
-                    Text("向右").tag(BranchDirection.right.rawValue)
-                    Text("向左").tag(BranchDirection.left.rawValue)
-                    Text("向下").tag(BranchDirection.down.rawValue)
-                    Text("向上").tag(BranchDirection.up.rawValue)
+                Picker("出土方向", selection: Binding(
+                    get: { appState.pullDirection },
+                    set: { appState.pullDirection = $0 }
+                )) {
+                    Text("向下拽").tag(PullDirection.down)
+                    Text("向上拽").tag(PullDirection.up)
+                    Text("向左拽").tag(PullDirection.left)
+                    Text("向右拽").tag(PullDirection.right)
                 }
-                Text("悬浮窗贴在屏幕哪条边，就选相反方向")
+                Text("拖拽方向 = 出土方向；树朝反方向的土壤长")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -53,12 +55,6 @@ struct SettingsView: View {
         .onChange(of: config) { _, newValue in
             newValue.save()
             appState.timerStore.engine.config = newValue
-        }
-        .onChange(of: branchDirection) { _, newValue in
-            // 同步到运行中的 AppState，悬浮窗即时换方向（@AppStorage 只保证重启后生效）
-            if let direction = BranchDirection(rawValue: newValue) {
-                appState.branchDirection = direction
-            }
         }
     }
 }

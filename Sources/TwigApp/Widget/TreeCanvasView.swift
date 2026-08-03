@@ -29,6 +29,9 @@ struct TreeCanvasView: View {
             let _ = tickIfNeeded(context.date)   // 实现注：按时间戳幂等驱动，body 计算前先推一帧
             let data = appState.goalsAndEdges()
             let positions = currentPositions()
+            // 布局包围盒（只算可见节点：已出土 + 手动摆放； buried 节点在画布外不算），
+            // 变化时回写 AppState，TreeWidgetController 据此扩/收窗
+            let bounds = contentBounds(goals: data.goals)
             ZStack(alignment: .topLeading) {
                 StemEdgeCanvas(edges: data.edges,
                                positions: positions,
@@ -57,7 +60,28 @@ struct TreeCanvasView: View {
                 TaskLeafPopover(appState: appState, positions: positions)
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .onChange(of: bounds, initial: true) { _, newValue in
+                appState.reportedTreeBounds = newValue
+            }
         }
+    }
+
+    /// 可见节点的包围盒尺寸（卡片 150×48 全计入；用基础布局位，不含拔树瞬态偏移）
+    private func contentBounds(goals: [Goal]) -> CGSize {
+        let base = appState.placements(in: rect)
+        var minX = CGFloat.greatestFiniteMagnitude
+        var minY = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        var maxY = -CGFloat.greatestFiniteMagnitude
+        var found = false
+        for g in goals where g.revealed || g.customX != nil {
+            guard let p = base[g.persistentModelID] else { continue }
+            found = true
+            minX = min(minX, p.x - 75); maxX = max(maxX, p.x + 75)
+            minY = min(minY, p.y - 24); maxY = max(maxY, p.y + 24)
+        }
+        guard found else { return CGSize(width: 720, height: 400) }   // 全埋：给默认画板
+        return CGSize(width: maxX - minX, height: maxY - minY)
     }
 
     // MARK: - 每帧物理（幂等按时间戳驱动，60fps periodic 本身已是帧节奏）

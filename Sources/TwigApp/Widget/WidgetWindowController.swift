@@ -2,12 +2,17 @@ import AppKit
 import SwiftUI
 
 @MainActor
+@Observable
 final class WidgetWindowController {
     private var panel: NSPanel?
 
+    /// 内容区尺寸（树画板）：默认 760×440，TreeWidgetController 按节点包围盒调整。
+    /// 设为可观察：WidgetView 的 treeSize 读它，扩窗后画布跟着重排
+    var contentSize: CGSize = CGSize(width: 760, height: 440)
+
     func show<Content: View>(rootView: Content) {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 64),
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 544),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false
         )
@@ -25,10 +30,12 @@ final class WidgetWindowController {
         self.panel = panel
     }
 
-    /// 状态切换时改尺寸（展开枝干时变高变宽）。宽度默认 560（380 横条 + 180 枝干留白），
-    /// 展开态按枝干内容宽度放大，避免超宽裁切
-    func resize(toHeight height: CGFloat, animated: Bool = true) {
-        resize(toWidth: 560, height: height, animated: animated)
+    /// 树画板态：窗口 = 横条(64) + 内容区 + 边距，宽度至少 560（横条宽度）
+    func resizeToFit(content: CGSize, animated: Bool = true) {
+        contentSize = content
+        let w = max(560, content.width + 40)
+        let h = 64 + (content.height > 0 ? content.height + 40 : 0)
+        resize(toWidth: w, height: h, animated: animated)
     }
 
     /// 顶边不动、左边不动，向右向下扩/收

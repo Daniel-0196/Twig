@@ -1,62 +1,28 @@
 import SwiftUI
 import TwigCore
 
+/// 悬浮窗主体：默认节点树画板，可折叠成横条（两态：tree / folded）
 struct WidgetView: View {
     let appState: AppState
-    var controller: WidgetWindowController
-
-    /// 收起态横条高度（含方向感知：纵向方向更高）
-    private var barHeight: CGFloat {
-        CollapsedBarView.barHeight(for: appState.branchTuning.direction)
-    }
+    var controller: TreeWidgetController
 
     var body: some View {
+        // 模块内有同名 Main/TimelineView，必须全限定
         SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(alignment: .leading, spacing: 8) {
-                CollapsedBarView(appState: appState)
-                switch appState.widgetState {
-                case .collapsed:
-                    EmptyView()
-                case .peeked:
-                    PeekListView(appState: appState)
-                case .expanded:
-                    BranchView(appState: appState)
-                }
-            }
-            .contentShape(Rectangle())
-            .onHover { inside in
-                // 兜底：指针完全离开悬浮窗区域就收回（peek / 画板态都一样）
-                if !inside, appState.widgetState != .collapsed {
-                    appState.widgetState = .collapsed
+            VStack(alignment: .leading, spacing: 0) {
+                CollapsedBarView(appState: appState)   // 头部横条（当前任务+番茄+折叠钮）
+                if appState.widgetMode == .tree {
+                    TreeCanvasView(appState: appState, size: controller.contentSize)
                 }
             }
             .onAppear { appState.timerStore.tick() }
             .onChange(of: context.date) { appState.timerStore.tick() }
-            .onChange(of: appState.branchTuning.direction) { _, _ in
-                // 方向切换会改变收起态高度（纵向更高）
-                if appState.widgetState == .collapsed {
-                    controller.resize(toHeight: barHeight)
-                }
-            }
-            .onChange(of: appState.widgetState) { _, state in
-                switch state {
-                case .collapsed: controller.resize(toHeight: barHeight)
-                case .peeked: controller.resize(toHeight: barHeight + 220)
-                case .expanded:
-                    controller.resize(toWidth: expandedWidth,
-                                      height: barHeight + appState.branchContentSize.height)
-                }
-            }
-            .onChange(of: appState.branchContentSize) { _, size in
-                if appState.widgetState == .expanded {
-                    controller.resize(toWidth: expandedWidth, height: barHeight + size.height)
-                }
+            .onChange(of: appState.widgetMode) { _, _ in controller.applyLayout() }
+            .onChange(of: appState.pullDirection) { _, _ in controller.applyLayout() }
+            .onChange(of: appState.reportedTreeBounds) { _, _ in
+                // 节点包围盒变化 → 树画板态按需扩/收窗
+                if appState.widgetMode == .tree { controller.applyLayout() }
             }
         }
-    }
-
-    /// 展开态窗口宽度：至少 560（横条宽度），枝干内容更宽时跟着放宽，避免裁切
-    private var expandedWidth: CGFloat {
-        max(560, appState.branchContentSize.width)
     }
 }

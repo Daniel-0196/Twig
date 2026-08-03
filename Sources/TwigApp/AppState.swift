@@ -4,8 +4,9 @@ import SwiftData
 import TwigCore
 import UserNotifications
 
-enum WidgetState {
-    case collapsed, peeked, expanded
+/// 悬浮窗两态：树画板（默认）/ 折叠横条
+enum WidgetMode {
+    case tree, folded
 }
 
 @MainActor
@@ -14,16 +15,10 @@ final class AppState {
     let container: ModelContainer
     let taskStore: TaskStore
     let timerStore: TimerStore
-    var widgetState: WidgetState = .collapsed
+    var widgetMode: WidgetMode = .tree
+    /// TreeCanvasView 布局后回写的节点包围盒尺寸，TreeWidgetController 据此扩窗
+    var reportedTreeBounds: CGSize = CGSize(width: 720, height: 400)
     var openMainWindow: (() -> Void)?
-
-    /// 枝干方向（用户可自定义，存 UserDefaults 键 twig.branchDirection）
-    var branchDirection: BranchDirection {
-        didSet { UserDefaults.standard.set(branchDirection.rawValue, forKey: "twig.branchDirection") }
-    }
-
-    /// BranchView 布局后回写，供窗口扩容器使用
-    var branchContentSize: CGSize = CGSize(width: 560, height: 360)
 
     /// 引擎状态的 @Observable 镜像：TimerStore/PomodoroEngine 不可观察，
     /// MenuBarExtra / 横条读这里才能随状态变化刷新（由 timerStore.onStateChange 回写）
@@ -31,20 +26,11 @@ final class AppState {
     /// pendingCompletionCheck 的镜像（"任务完成了吗？"横条确认按钮的显示开关）
     private(set) var pendingCompletionCheck = false
 
-    /// 枝干布局参数（全部可调——交互手感迭代就改这里）
-    var branchTuning: BranchTuning {
-        var tuning = BranchTuning()
-        tuning.direction = branchDirection
-        return tuning
-    }
-
     private var inboxWatcher: DispatchSourceFileSystemObject?
     private var snapshotTimer: Timer?
     private(set) var lastImportReport: ImportReport?
 
     init() {
-        let raw = UserDefaults.standard.string(forKey: "twig.branchDirection")
-        branchDirection = raw.flatMap { BranchDirection(rawValue: $0) } ?? .right
         // 先备份再打开/迁移数据库（spec §10）：迁移失败尚有备份可回滚
         try? StoreBackup.backupNow()
         do {
@@ -103,68 +89,6 @@ final class AppState {
 
     func exportSnapshot() {
         try? SnapshotExporter.export(projects: taskStore.allProjects(), to: TwigPaths.snapshotURL)
-    }
-
-    /// 枝干节点上下拖动 = 调整该目标在项目内的排期：
-    /// 布局按 targetDate 排序，所以与拖动方向上的相邻目标交换 targetDate / sortOrder，
-    /// 松手后枝干顺序随之变化（nodeID 由 BranchLayout.stableID 派生，这里反查找回 goal）
-    func moveGoal(nodeID: UUID, verticalDelta: CGFloat) {
-        let steps = Int((verticalDelta / 64).rounded())   // 每 64pt 一格
-        guard steps != 0 else { return }
-        for project in taskStore.allProjects() {
-            let goals = project.goals.filter { !$0.isDone }
-                .sorted { ($0.targetDate ?? .distantFuture) < ($1.targetDate ?? .distantFuture) }
-            guard goals.count > 1,
-                  let index = goals.firstIndex(where: { BranchLayout.stableID(for: $0) == nodeID }) else { continue }
-            let newIndex = min(max(index + steps, 0), goals.count - 1)
-            guard newIndex != index else { return }
-            let dragged = goals[index]
-            let neighbor = goals[newIndex]
-            swap(&dragged.targetDate, &neighbor.targetDate)
-            swap(&dragged.sortOrder, &neighbor.sortOrder)
-            try? container.mainContext.save()
-            return
-        }
-    }
-
-    /// 由枝干节点 ID 反查 Goal（nodeID 由 BranchLayout.stableID 派生，与 moveGoal 同一套反查）
-    func goal(forNodeID nodeID: UUID) -> Goal? {
-        for project in taskStore.allProjects() {
-            for goal in project.goals where BranchLayout.stableID(for: goal) == nodeID {
-                return goal
-            }
-        }
-        return nil
-    }
-
-    /// 枝干悬停面板用：该目标下未完成任务（按排序，最多 limit 条）
-    func openTasks(forNodeID nodeID: UUID, limit: Int = 5) -> [TwigCore.Task] {
-        guard let goal = goal(forNodeID: nodeID) else { return [] }
-        return goal.tasks
-            .filter { !$0.isDone }
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    /// 枝干悬停面板用：给节点对应的目标加任务
-    func addTask(toNodeID nodeID: UUID, title: String) {
-        guard let goal = goal(forNodeID: nodeID) else { return }
-        taskStore.addTask(to: goal, title: title)
-        exportSnapshot()
-    }
-
-    /// 枝干面板用：开始专注该目标（取第一个未完成任务；没有则不计名计时）
-    func startFocus(onNodeID nodeID: UUID) {
-        let task = openTasks(forNodeID: nodeID, limit: 1).first
-        timerStore.start(task: task, mode: .pomodoro)
-        widgetState = .collapsed
-    }
-
-    /// 枝干面板用：开始专注具体任务
-    func startFocus(on task: TwigCore.Task) {
-        timerStore.start(task: task, mode: .pomodoro)
-        widgetState = .collapsed
     }
 
     // MARK: - 拔树画板状态
