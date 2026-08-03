@@ -1,6 +1,9 @@
 import SwiftUI
 
 extension Color {
+    /// Twig 主题强调色（Claude 橙 #D97757）
+    static let twigAccent = Color(red: 0.85, green: 0.47, blue: 0.34)
+
     init?(hex: String) {
         var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.hasPrefix("#") { s.removeFirst() }
