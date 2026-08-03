@@ -870,6 +870,7 @@ function startMoveNode(e, n) {
   hideActs();   // 拖动时隐藏 HUD
   moveState = { n, startX: e.clientX, startY: e.clientY, origX: n.x, origY: n.y };
   nodeEls.get(n.id)?.classList.add('moving');
+  document.body.classList.add('pulling');   // 关过渡，跟手
 }
 
 function startPull(e, n) {
@@ -937,6 +938,7 @@ document.addEventListener('mouseup', (e) => {
   if (moveState) {
     nodeEls.get(moveState.n.id)?.classList.remove('moving');
     moveState = null;
+    if (!pullState) document.body.classList.remove('pulling');
     save();
   }
 });
