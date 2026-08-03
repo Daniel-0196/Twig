@@ -275,5 +275,8 @@ struct TreeCanvasView: View {
         physics.springT = 0
         appState.pullSession = nil
         // pullComponent/pullDepths 保留到回弹播完（tick 里清），树才能跟着偏移弹回
+        // 拔树期间拖离 HUD 的清场被 pullSession 守卫丢弃，松手后补调度一次；
+        // 光标若仍在 HUD 上，清场闭包的 onHud/linking 守卫会拦住，不会误清
+        scheduleHoverClear(gen: hoverBox.gen)
     }
 }
