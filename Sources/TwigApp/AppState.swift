@@ -26,9 +26,7 @@ final class AppState {
     /// pendingCompletionCheck 的镜像（"任务完成了吗？"横条确认按钮的显示开关）
     private(set) var pendingCompletionCheck = false
 
-    private var inboxWatcher: DispatchSourceFileSystemObject?
     private var snapshotTimer: Timer?
-    private(set) var lastImportReport: ImportReport?
 
     init() {
         // 先备份再打开/迁移数据库（spec §10）：迁移失败尚有备份可回滚
@@ -52,8 +50,6 @@ final class AppState {
         migrateRevealFlags()
         seedDefaultEdges()
         recoverUnclosedEntries()
-        watchInbox()
-        handleInboxWrite()
         exportSnapshot()
         snapshotTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             _Concurrency.Task { @MainActor in self?.exportSnapshot() }
@@ -82,15 +78,6 @@ final class AppState {
             return "全部完成 🎉"
         case .focusing: return "专注中"
         case .onBreak(_, _, let isLong): return isLong ? "长休息" : "短休息"
-        }
-    }
-
-    func importInbox() {
-        let report = try? InboxImporter(store: taskStore)
-            .importInbox(at: TwigPaths.inboxURL, badLinesURL: TwigPaths.badLinesURL)
-        if let report, report.imported > 0 || !report.badLines.isEmpty {
-            lastImportReport = report
-            exportSnapshot()
         }
     }
 
@@ -131,11 +118,12 @@ final class AppState {
         let ctx = container.mainContext
         let all = (try? ctx.fetch(FetchDescriptor<Goal>())) ?? []
         let edges = (try? ctx.fetch(FetchDescriptor<Edge>())) ?? []
-        // 画板只放目标节点；"收集箱"是收件箱的默认落点，不是阶段目标，不上树。
-        // 边必须同步过滤：收集箱混在顺序链里（v0.1→收集箱→v0.2）时，布局的
-        // 深度/frontier 遍历会把它当隐形节点排进画布——节点卡不渲染（被过滤），
-        // 茎线却照着位置画，看起来就是"从横条垂一条长线 / 断在半空"
-        let goals = all.filter { $0.title != "收集箱" }
+        // 画板只放目标节点；收件箱默认落点（历史"收集箱"/新"未分配"）不是阶段目标，不上树。
+        // 边必须同步过滤：隐藏节点混在顺序链里时，布局的深度/frontier 遍历会把它
+        // 当隐形节点排进画布——节点卡不渲染（被过滤），茎线却照着位置画，
+        // 看起来就是"从横条垂一条长线 / 断在半空"
+        let hidden: Set<String> = ["收集箱", "未分配"]
+        let goals = all.filter { !hidden.contains($0.title) }
         let ids = Set(goals.map(\.persistentModelID))
         let canvasEdges = edges.filter {
             ($0.from.map { ids.contains($0.persistentModelID) } ?? false)
@@ -268,39 +256,6 @@ final class AppState {
         alert.informativeText = "检测到 \(open.count) 段未正常结束的计时（共约 \(total) 分钟），已按最后心跳补记。如不需要可在主窗口删除对应记录。"
         alert.addButton(withTitle: "好")
         alert.runModal()
-    }
-
-    private func watchInbox() {
-        inboxWatcher?.cancel()
-        inboxWatcher = nil
-        try? FileManager.default.createDirectory(at: TwigPaths.supportDir, withIntermediateDirectories: true)
-        if !FileManager.default.fileExists(atPath: TwigPaths.inboxURL.path) {
-            FileManager.default.createFile(atPath: TwigPaths.inboxURL.path, contents: nil)
-        }
-        let fd = open(TwigPaths.inboxURL.path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd, eventMask: .write, queue: .main)
-        source.setEventHandler { [weak self] in
-            _Concurrency.Task { @MainActor in self?.handleInboxWrite() }
-        }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        inboxWatcher = source
-    }
-
-    /// 收件箱写入事件：导入 → 重建监视 → 补漏，循环到收件箱为空。
-    /// 导入会把 inbox 原子 rename 成 processing 文件处理掉（丢数据窗口修复），
-    /// 之后 inbox 由 CLI 重建——inode 已换，旧 fd 的 O_EVTONLY 监视永远不再触发，
-    /// 所以每轮导入后必须 re-arm；re-arm 间隙 CLI 又写入的，靠文件大小检查兜底再导一轮。
-    private func handleInboxWrite() {
-        for _ in 0..<8 {
-            importInbox()
-            watchInbox()
-            let size = (try? FileManager.default
-                .attributesOfItem(atPath: TwigPaths.inboxURL.path)[.size] as? Int) ?? 0
-            if size == 0 { return }
-        }
     }
 
     private func handleEngineEvent(_ event: EngineEvent) {

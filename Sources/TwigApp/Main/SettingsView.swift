@@ -5,7 +5,6 @@ import TwigCore
 struct SettingsView: View {
     let appState: AppState
     @State private var config = TimerConfig.load()
-    @State private var badLineCount = 0
     @State private var loginItem = false
 
     var body: some View {
@@ -42,16 +41,8 @@ struct SettingsView: View {
                         } catch { loginItem = false }
                     }
             }
-            Section("收件箱") {
-                Text(badLineCount == 0 ? "没有导入失败的记录" : "有 \(badLineCount) 条导入失败，见 inbox.bad.jsonl")
-                    .foregroundStyle(badLineCount == 0 ? Color.secondary : Color.orange)
-            }
         }
         .formStyle(.grouped)
-        .onAppear {
-            badLineCount = (try? String(contentsOf: TwigPaths.badLinesURL, encoding: .utf8))?
-                .split(separator: "\n").count ?? 0
-        }
         .onChange(of: config) { _, newValue in
             newValue.save()
             appState.timerStore.engine.config = newValue
