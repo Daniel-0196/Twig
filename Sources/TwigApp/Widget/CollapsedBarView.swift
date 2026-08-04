@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TwigCore
 
@@ -119,6 +120,15 @@ struct CollapsedBarView: View {
                 .stroke(.white.opacity(0.6), lineWidth: 1)
         )
         .onHover { onPeekHover($0) }
+        // 窗口只认横条拖动（面板已关 isMovableByWindowBackground，节点拖拽才不会被吃掉）
+        .gesture(
+            DragGesture()
+                .onChanged { _ in
+                    if let w = NSApp.keyWindow ?? NSApp.windows.first(where: { $0 is NSPanel }) {
+                        w.performDrag(with: NSApp.currentEvent!)
+                    }
+                }
+        )
     }
 
     private var activeColorHex: String {

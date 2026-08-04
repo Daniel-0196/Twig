@@ -22,7 +22,7 @@ final class WidgetWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false   // 背景拖动会吃掉节点拖拽：窗口只能拖横条
         // 悬浮窗永远浅色（深色桌面下材料/控件不能变深灰）
         panel.appearance = NSAppearance(named: .aqua)
         // 非激活面板也要收 mouse-moved 事件（SwiftUI onHover/tracking area 的前提；

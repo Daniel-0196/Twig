@@ -14,18 +14,6 @@ struct WidgetView: View {
         // 模块内有同名 Main/TimelineView，必须全限定
         SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
             ZStack(alignment: .topLeading) {
-                if appState.widgetMode == .tree {
-                    // 白画布（对齐原型）：屏幕矩形 = 悬浮窗内容区本身，
-                    // 白底圆角 + #E8E6DC 虚线边，树画板与横条都画在它上面
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.white)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color(red: 0.91, green: 0.90, blue: 0.86),
-                                        style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
-                        )
-                        .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
-                }
                 VStack(alignment: .leading, spacing: 0) {
                     CollapsedBarView(appState: appState, onPeekHover: peekHover)   // 头部横条
                     if appState.widgetMode == .tree {
