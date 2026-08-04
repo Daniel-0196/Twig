@@ -4,11 +4,9 @@ import TwigCore
 
 /// 紧凑横条：当前任务 + 计时 + 折叠钮；折叠态在末梢画向外延展的虚线（朝向跟随出土方向）。
 /// 每个有未完成目标的项目一条虚线，末端一个项目色空心小圆。
-/// 今日浮层（PeekListView）由 WidgetView 在树根层 overlay 渲染，本视图只上报悬停进出
 struct CollapsedBarView: View {
     let appState: AppState
     /// 悬停进出回调（与浮层共享 WidgetView 的票号协调，跨过横条→浮层间隙不闪收）
-    var onPeekHover: (Bool) -> Void = { _ in }
 
     /// 折叠态总高：纵向出土方向时虚线在横条上/下方，需要更高
     static func barHeight(for direction: PullDirection) -> CGFloat {
@@ -119,7 +117,6 @@ struct CollapsedBarView: View {
             RoundedRectangle(cornerRadius: 22)
                 .stroke(.white.opacity(0.6), lineWidth: 1)
         )
-        .onHover { onPeekHover($0) }
         // 窗口只认横条拖动（面板已关 isMovableByWindowBackground，节点拖拽才不会被吃掉）
         .gesture(
             DragGesture()

@@ -362,8 +362,6 @@ struct TreeCanvasView: View {
     // 每帧读 NSEvent.mouseLocation → 命中节点/HUD 区域，迁移时走与 onHover 相同的防抖管线）
 
     private func syncHoverWithMouse(goals: [Goal], positions: [PersistentIdentifier: CGRect]) {
-        // 今日浮层展开盖住画板顶部：浮层交互期间不抢节点悬停
-        guard !appState.peekListVisible else { return }
         let canvasFrame = hoverBox.canvasFrameInWindow
         guard canvasFrame.width > 0 else { return }
         var hitID: PersistentIdentifier?

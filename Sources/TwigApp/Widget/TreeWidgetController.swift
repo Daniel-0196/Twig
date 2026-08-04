@@ -29,23 +29,10 @@ final class TreeWidgetController {
     func applyLayout(animated: Bool = true) {
         switch appState.widgetMode {
         case .folded:
-            var height = CollapsedBarView.barHeight(for: appState.pullDirection)
-            if appState.peekListVisible {
-                // 今日浮层滑出：窗口向下扩高容纳（顶边不动）
-                let rows = min(PeekListView.maxRows,
-                               appState.taskStore.tasksForToday(on: Date()).count)
-                height += PeekListView.height(forRowCount: rows) + 6
-            }
+            let height = CollapsedBarView.barHeight(for: appState.pullDirection)
             window.resize(toWidth: 560, height: height, animated: animated)
         case .tree:
-            // 树画板态浮层滑出也要扩窗：浮层在窗口外收不到 hover-exit，会一直卡着不关
-            var content = fittedContentSize()
-            if appState.peekListVisible {
-                let rows = min(PeekListView.maxRows,
-                               appState.taskStore.tasksForToday(on: Date()).count)
-                content.height += PeekListView.height(forRowCount: rows) + 12
-            }
-            window.resizeToFit(content: content, animated: animated)
+            window.resizeToFit(content: fittedContentSize(), animated: animated)
         }
     }
 

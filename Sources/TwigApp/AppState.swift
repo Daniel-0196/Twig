@@ -107,8 +107,6 @@ final class AppState {
     var addingNodeNear: Goal?
     /// 叶子点击：任务详情弹卡（task + 所属 goal），TaskLeafPopover 读取
     var leafTask: (TwigCore.Task, Goal)?
-    /// 悬停横条滑出今日任务清单（PeekListView 显隐；折叠态窗口随之扩高）
-    var peekListVisible = false
     /// 光标在悬浮窗内容坐标系（左上角原点）的位置，不在窗内为 nil。
     /// 非激活 NSPanel 收不到 SwiftUI onHover，悬停 HUD 由 TreeCanvasView 每帧轮询这里驱动；
     /// 由 TreeWidgetController.start 注入（闭包避免 AppState 反向持有窗口）
