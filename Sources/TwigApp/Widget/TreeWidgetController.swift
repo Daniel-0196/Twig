@@ -19,6 +19,8 @@ final class TreeWidgetController {
 
     /// 装配并显示悬浮窗；启动即展开树画板（不再"悬停才展开"）
     func start() {
+        // 悬停 HUD 的光标来源：TreeCanvasView 每帧轮询（非激活面板收不到 onHover）
+        appState.widgetMouseProvider = { [weak window] in window?.mouseLocationInContent() }
         window.show(rootView: WidgetView(appState: appState, controller: self))
         applyLayout(animated: false)
     }
@@ -48,13 +50,14 @@ final class TreeWidgetController {
     }
 
     /// 内容区 = 节点包围盒 + 内边距。
-    /// 上限"屏幕 1/3"但不低于默认画板（760×440）——笔记本屏的 1/3 比默认画板还小，
-    /// 直接封顶会裁切默认布局，所以默认尺寸内不设限，超出默认后 1/3 封顶才生效
+    /// 高度上限"屏幕 60%"（原 1/3 太矮：纵向链条两三层就超 440，深层节点被窗底裁切）；
+    /// 下限默认画板（760×440）——笔记本屏的上限比默认画板还小，
+    /// 直接封顶会裁切默认布局，所以默认尺寸内不设限，超出默认后封顶才生效
     private func fittedContentSize() -> CGSize {
         let bounds = appState.reportedTreeBounds
         let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1512, height: 982)
         let maxW = max(760, screen.width / 3)
-        let maxH = max(440, screen.height / 3)
+        let maxH = max(440, screen.height * 0.6)
         return CGSize(
             width: min(max(560, bounds.width + 48), maxW),
             height: min(max(360, bounds.height + 48), maxH)

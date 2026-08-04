@@ -122,13 +122,26 @@ final class AppState {
     var leafTask: (TwigCore.Task, Goal)?
     /// 悬停横条滑出今日任务清单（PeekListView 显隐；折叠态窗口随之扩高）
     var peekListVisible = false
+    /// 光标在悬浮窗内容坐标系（左上角原点）的位置，不在窗内为 nil。
+    /// 非激活 NSPanel 收不到 SwiftUI onHover，悬停 HUD 由 TreeCanvasView 每帧轮询这里驱动；
+    /// 由 TreeWidgetController.start 注入（闭包避免 AppState 反向持有窗口）
+    var widgetMouseProvider: (() -> CGPoint?)?
 
     func goalsAndEdges() -> (goals: [Goal], edges: [Edge]) {
         let ctx = container.mainContext
-        let goals = (try? ctx.fetch(FetchDescriptor<Goal>())) ?? []
+        let all = (try? ctx.fetch(FetchDescriptor<Goal>())) ?? []
         let edges = (try? ctx.fetch(FetchDescriptor<Edge>())) ?? []
-        // 画板只放目标节点；"收集箱"是收件箱的默认落点，不是阶段目标，不上树
-        return (goals.filter { $0.title != "收集箱" }, edges)
+        // 画板只放目标节点；"收集箱"是收件箱的默认落点，不是阶段目标，不上树。
+        // 边必须同步过滤：收集箱混在顺序链里（v0.1→收集箱→v0.2）时，布局的
+        // 深度/frontier 遍历会把它当隐形节点排进画布——节点卡不渲染（被过滤），
+        // 茎线却照着位置画，看起来就是"从横条垂一条长线 / 断在半空"
+        let goals = all.filter { $0.title != "收集箱" }
+        let ids = Set(goals.map(\.persistentModelID))
+        let canvasEdges = edges.filter {
+            ($0.from.map { ids.contains($0.persistentModelID) } ?? false)
+                && ($0.to.map { ids.contains($0.persistentModelID) } ?? false)
+        }
+        return (goals, canvasEdges)
     }
 
     func placements(in rect: CGRect) -> [PersistentIdentifier: CGPoint] {

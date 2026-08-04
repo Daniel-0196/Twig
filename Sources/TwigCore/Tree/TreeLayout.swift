@@ -80,6 +80,9 @@ public enum TreeLayout {
                              direction: PullDirection) -> [PersistentIdentifier: CGPoint] {
         var result: [PersistentIdentifier: CGPoint] = [:]
         let depth = TreeTopology.depths(goals: goals, edges: edges)
+        // frontier 遍历只认入参节点集：边可能指向集合外的节点（如画板过滤掉的"收集箱"），
+        // 不拦住的话布局会把集合外节点当隐形节点排进来
+        let memberIDs = Set(goals.map(\.persistentModelID))
 
         // 项目分组（保持 projects 传入顺序用 Goal.project）
         var byProject: [PersistentIdentifier: (project: Project, goals: [Goal])] = [:]
@@ -95,19 +98,22 @@ public enum TreeLayout {
 
         for (pi, pid) in order.enumerated() {
             let group = byProject[pid]!
+            // 左侧内边距 120：节点卡以中心点 ±75（加抖动 ±22）近似半宽，<97 会被画布左缘裁切
             let baseCross: CGFloat = (direction == .up || direction == .down)
-                ? rect.minX + 80 + CGFloat(pi) * 260
+                ? rect.minX + 120 + CGFloat(pi) * 260
                 : rect.minY + 50 + CGFloat(pi) * 150
 
-            // 手动摆放的节点：不参与自动布局，按 custom 位置原样写入
-            for g in group.goals {
+            // 手动摆放的节点：不参与自动布局，按 custom 位置原样写入。
+            // 仅限已出土节点——埋土节点属于土壤（土线外的槽位），若沿用 custom 位置，
+            // 埋土剪影会钉在画布内、茎线断在半空而节点本身在白底上近不可见
+            for g in group.goals where g.revealed {
                 if let cx = g.customX {
                     result[g.persistentModelID] = CGPoint(x: cx, y: g.customY ?? 0)
                 }
             }
 
             let shown = group.goals.filter { $0.revealed && $0.customX == nil }
-            let hidden = group.goals.filter { !$0.revealed && $0.customX == nil }
+            let hidden = group.goals.filter { !$0.revealed }
                 .sorted { (depth[$0.persistentModelID] ?? 0) < (depth[$1.persistentModelID] ?? 0) }
 
             // 根随出土深度迁移
@@ -147,7 +153,7 @@ public enum TreeLayout {
                 for parent in frontier {
                     let kids = TreeTopology.outgoing(from: parent, edges: edges)
                         .compactMap { $0.to }
-                        .filter { $0.revealed && $0.customX == nil }
+                        .filter { $0.revealed && $0.customX == nil && memberIDs.contains($0.persistentModelID) }
                     let parentCross = result[parent.persistentModelID]!.xOrY(cross: direction)
                     for (i, kid) in kids.enumerated() {
                         let cross = parentCross + (CGFloat(i) - CGFloat(kids.count - 1) / 2) * siblingGap + jitter(kid)

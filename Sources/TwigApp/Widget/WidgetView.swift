@@ -14,6 +14,18 @@ struct WidgetView: View {
         // 模块内有同名 Main/TimelineView，必须全限定
         SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
             ZStack(alignment: .topLeading) {
+                if appState.widgetMode == .tree {
+                    // 白画布（对齐原型）：屏幕矩形 = 悬浮窗内容区本身，
+                    // 白底圆角 + #E8E6DC 虚线边，树画板与横条都画在它上面
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color(red: 0.91, green: 0.90, blue: 0.86),
+                                        style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
+                        )
+                        .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     CollapsedBarView(appState: appState, onPeekHover: peekHover)   // 头部横条
                     if appState.widgetMode == .tree {
@@ -34,10 +46,16 @@ struct WidgetView: View {
             .onAppear { appState.timerStore.tick() }
             .onChange(of: context.date) {
                 appState.timerStore.tick()
-                // 浮层防卡死兜底：非激活面板的 hover-exit 事件可能丢失，
-                // 每秒核对一次光标位置，已离开悬浮窗却仍开着就强制收回
-                if appState.peekListVisible && !controller.window.cursorInside() {
-                    appState.peekListVisible = false
+                // 浮层防卡死兜底：非激活面板的 hover-exit 事件可能丢失，每秒核对一次。
+                // 保活区域 = 横条 + 浮层本体（原型：离开横条/浮层即收）；
+                // 不能用"光标在整个窗口内"——树画板态窗口很大，浮层会常开挡住画布
+                if appState.peekListVisible {
+                    let rows = min(PeekListView.maxRows,
+                                   appState.taskStore.tasksForToday(on: Date()).count)
+                    let band = peekTopOffset + PeekListView.height(forRowCount: rows) + 12
+                    if !controller.window.cursorInTopBand(width: 400, height: band) {
+                        appState.peekListVisible = false
+                    }
                 }
             }
             .onChange(of: appState.widgetMode) { _, _ in controller.applyLayout() }

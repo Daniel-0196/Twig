@@ -24,9 +24,10 @@ struct TreeCanvasView: View {
     @FocusState private var addFieldFocused: Bool
 
     private var rect: CGRect { CGRect(origin: .zero, size: size) }
-    /// 画板顶部安全区：留给悬停横条滑出的今日浮层（overlay 盖在画板上方，不与节点重叠）。
-    /// 向下方向时土线随之从顶边内移，出土节点整体下沉
-    static let peekSafeZone: CGFloat = 70
+    /// 画板顶部安全区：只留少量呼吸边距。
+    /// 原 70pt 是给今日浮层让位，但浮层是临时 overlay（z 序压过节点、关闭即还地），
+    /// 常驻的大安全区会把根节点推离画布顶边几百 px——原型里向下模式根贴在土壤线附近
+    static let peekSafeZone: CGFloat = 12
     /// 节点布局/土线使用的矩形（顶部扣掉安全区）
     private var layoutRect: CGRect {
         CGRect(x: rect.minX, y: rect.minY + Self.peekSafeZone,
@@ -42,6 +43,8 @@ struct TreeCanvasView: View {
             let _ = tickIfNeeded(context.date)   // 实现注：按时间戳幂等驱动，body 计算前先推一帧
             let data = appState.goalsAndEdges()
             let positions = currentPositions()
+            // 非激活面板收不到 SwiftUI onHover：每帧轮询光标位置驱动悬停 HUD（幂等按状态迁移）
+            let _ = syncHoverWithMouse(goals: data.goals, positions: positions)
             // 布局包围盒（只算可见节点：已出土 + 手动摆放； buried 节点在画布外不算），
             // 变化时回写 AppState，TreeWidgetController 据此扩/收窗
             let bounds = contentBounds(goals: data.goals)
@@ -93,6 +96,13 @@ struct TreeCanvasView: View {
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
+            // 画布在窗口坐标系（.global = 窗口内容区，左上角原点）的 frame：
+            // 光标轮询把窗口坐标换算成画布局部坐标用（写引用盒，不触发状态刷新）
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { newFrame in
+                hoverBox.canvasFrameInWindow = newFrame
+            }
             .onExitCommand {
                 appState.leafTask = nil
                 appState.addingNodeNear = nil
@@ -158,19 +168,20 @@ struct TreeCanvasView: View {
     /// 可见节点的包围盒尺寸（卡片 150×48 全计入；用基础布局位，不含拔树瞬态偏移）
     private func contentBounds(goals: [Goal]) -> CGSize {
         let base = appState.placements(in: layoutRect)
-        var minX = CGFloat.greatestFiniteMagnitude
-        var minY = CGFloat.greatestFiniteMagnitude
         var maxX = -CGFloat.greatestFiniteMagnitude
         var maxY = -CGFloat.greatestFiniteMagnitude
         var found = false
         for g in goals where g.revealed || g.customX != nil {
             guard let p = base[g.persistentModelID] else { continue }
             found = true
-            minX = min(minX, p.x - 75); maxX = max(maxX, p.x + 75)
-            minY = min(minY, p.y - 24); maxY = max(maxY, p.y + 24)
+            maxX = max(maxX, p.x + 75)
+            maxY = max(maxY, p.y + 24)
         }
         guard found else { return CGSize(width: 720, height: 400) }   // 全埋：给默认画板
-        return CGSize(width: maxX - minX, height: maxY - minY)
+        // 布局从画布左上绝对定位（含顶部安全区与左侧内边距），包围盒必须从画布原点
+        // 量到最右/最下节点边缘——若只报"节点跨度"，窗口会比布局矮/窄，
+        // 深层节点被窗框裁掉、根节点看起来也没贴在设计位置上
+        return CGSize(width: maxX + 24, height: maxY + 24)
     }
 
     // MARK: - 每帧物理（幂等按时间戳驱动，60fps periodic 本身已是帧节奏）
@@ -339,9 +350,52 @@ struct TreeCanvasView: View {
         var gen = 0          // 悬停事件代次：每次进出 +1，过期代次的延迟清场自动作废
         var linking = false  // 挂点拉线进行中：悬停锁定在源节点，经过的节点不抢悬停
         var onHud = false    // 光标在 HUD 上（进出事件顺序无保证，清场时以此兜底）
+        /// 画布在窗口坐标系的 frame（onGeometryChange 回写）：光标轮询换算局部坐标用
+        var canvasFrameInWindow: CGRect = .zero
+        /// 光标轮询当前命中的节点（只在迁移时触发进出，光标静止不重复触发）
+        var mouseHitID: PersistentIdentifier?
     }
 
     @State private var hoverBox = HoverBox()
+
+    // MARK: - 光标轮询悬停（NSPanel 非激活时 SwiftUI onHover 不触发，
+    // 每帧读 NSEvent.mouseLocation → 命中节点/HUD 区域，迁移时走与 onHover 相同的防抖管线）
+
+    private func syncHoverWithMouse(goals: [Goal], positions: [PersistentIdentifier: CGRect]) {
+        // 今日浮层展开盖住画板顶部：浮层交互期间不抢节点悬停
+        guard !appState.peekListVisible else { return }
+        let canvasFrame = hoverBox.canvasFrameInWindow
+        guard canvasFrame.width > 0 else { return }
+        var hitID: PersistentIdentifier?
+        var onHud = false
+        if let win = appState.widgetMouseProvider?(), canvasFrame.contains(win) {
+            let local = CGPoint(x: win.x - canvasFrame.minX, y: win.y - canvasFrame.minY)
+            // 节点命中（外扩 2pt 容错）
+            hitID = positions.first(where: { $0.value.insetBy(dx: -2, dy: -2).contains(local) })?.key
+            // HUD 命中：悬停节点上下各扩 40（上排钮在 minY-18、叶子在 maxY+18），
+            // 横向放宽到钮排/叶子排宽度，节点 → HUD 的间隙靠这个跨过
+            if hitID == nil, let hovered = appState.hoveredGoal,
+               let hf = positions[hovered.persistentModelID] {
+                onHud = hf.insetBy(dx: -80, dy: -40).contains(local)
+            }
+        }
+        if onHud != hoverBox.onHud { hudHover(onHud) }
+        guard hitID != hoverBox.mouseHitID else { return }
+        let prevID = hoverBox.mouseHitID
+        hoverBox.mouseHitID = hitID
+        if let prevID {
+            if let prev = goals.first(where: { $0.persistentModelID == prevID }) {
+                nodeHover(prev, inside: false)
+            } else {
+                // 悬停目标已被删除（HUD 🗑）：按退出处理，走防抖清场
+                hoverBox.gen &+= 1
+                scheduleHoverClear(gen: hoverBox.gen)
+            }
+        }
+        if let hitID, let goal = goals.first(where: { $0.persistentModelID == hitID }) {
+            nodeHover(goal, inside: true)
+        }
+    }
 
     private func nodeHover(_ goal: Goal, inside: Bool) {
         if hoverBox.linking { return }                          // 拉线经过的节点不抢悬停

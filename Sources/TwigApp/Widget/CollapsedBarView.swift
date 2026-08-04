@@ -111,6 +111,8 @@ struct CollapsedBarView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(width: 380)
+        // 半透明白底垫在 material 上：透深色桌面时仍是浅色玻璃（对齐原型/节点卡）
+        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 22))
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
         .overlay(
             RoundedRectangle(cornerRadius: 22)
