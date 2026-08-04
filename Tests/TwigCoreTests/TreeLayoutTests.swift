@@ -72,3 +72,25 @@ final class TreeLayoutTests: XCTestCase {
         XCTAssertEqual(pos[goals[0].persistentModelID], CGPoint(x: 333, y: 222))
     }
 }
+
+// MARK: - 多项目分组（mergeCook4 节点丢失回归：两项目的根都必须进画布）
+final class TreeLayoutMultiProjectTests: XCTestCase {
+    private let rect = CGRect(x: 0, y: 0, width: 800, height: 500)
+
+    func testBothProjectRootsAppear() {
+        let p1 = Project(name: "MergeCook", colorHint: "#7D9B76")
+        let g1 = Goal(title: "渲染管线重构", horizon: .short, targetDate: nil)
+        g1.project = p1; g1.revealed = true
+        let p2 = Project(name: "Merge2", colorHint: "#6B8FC4")
+        let g2 = Goal(title: "玩法闭环", horizon: .short, targetDate: nil)
+        g2.project = p2; g2.revealed = true
+        let pos = TreeLayout.place(goals: [g1, g2], edges: [], rect: rect, direction: .down)
+        // 两个根都排进画布，且按项目分列（baseCross 相距 260）
+        let x1 = pos[g1.persistentModelID]!.x
+        let x2 = pos[g2.persistentModelID]!.x
+        XCTAssertEqual(pos.count, 2)
+        XCTAssertEqual(abs(x2 - x1), 260, accuracy: 45)   // 列距 260 ± 抖动22
+        XCTAssertEqual(pos[g1.persistentModelID]!.y, rect.minY + 90, accuracy: 1)
+        XCTAssertEqual(pos[g2.persistentModelID]!.y, rect.minY + 90, accuracy: 1)
+    }
+}

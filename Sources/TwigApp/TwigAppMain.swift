@@ -43,6 +43,26 @@ struct TwigAppMain: App {
                 Button("结束休息") { appState.timerStore.endBreak() }
             }
             Divider()
+            Menu("出土方向") {
+                ForEach(PullDirection.allCases, id: \.self) { d in
+                    Button {
+                        appState.pullDirection = d
+                    } label: {
+                        if appState.pullDirection == d {
+                            Label(directionLabel(d), systemImage: "checkmark")
+                        } else {
+                            Text(directionLabel(d))
+                        }
+                    }
+                }
+            }
+            Button(appState.widgetMode == .tree ? "折叠悬浮窗" : "展开悬浮窗") {
+                appState.widgetMode = appState.widgetMode == .tree ? .folded : .tree
+            }
+            Button("重置节点位置") {
+                for p in appState.taskStore.allProjects() { appState.resetTree(p) }
+            }
+            Divider()
             Button("打开主窗口") { openMain() }
             Divider()
             Button("退出 Twig") { NSApp.terminate(nil) }
@@ -56,6 +76,15 @@ struct TwigAppMain: App {
     private func openMain() {
         openWindow(id: "main")
         NSApp.activate()
+    }
+
+    private func directionLabel(_ d: PullDirection) -> String {
+        switch d {
+        case .up: return "向上"
+        case .down: return "向下"
+        case .left: return "向左"
+        case .right: return "向右"
+        }
     }
 }
 

@@ -36,19 +36,18 @@ final class TreeWidgetController {
         }
     }
 
-    /// 内容区 = 节点包围盒 + 内边距。
-    /// 高度上限"屏幕 60%"（原 1/3 太矮：纵向链条两三层就超 440，深层节点被窗底裁切）；
-    /// 下限默认画板（760×440）——笔记本屏的上限比默认画板还小，
-    /// 直接封顶会裁切默认布局，所以默认尺寸内不设限，超出默认后封顶才生效
+    /// 内容区 = 节点包围盒 + 小内边距。
+    /// 高度上限"屏幕 60%"；下限只保底（原 360/440 下限 + 双重边距让窗口比内容高出一大截，
+    /// 节点挤在顶部一小条、下面大片空白——窗口必须贴合内容）
     private func fittedContentSize() -> CGSize {
         let bounds = appState.reportedTreeBounds
         let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1512, height: 982)
         let maxW = max(760, screen.width / 3)
         let maxH = max(440, screen.height * 0.6)
         return CGSize(
-            // 宽度下限 680：两项目横排（minX+120+260 + 节点半宽75 + 卫星90 + 边距）
-            width: min(max(680, bounds.width + 48), maxW),
-            height: min(max(360, bounds.height + 48), maxH)
+            // 宽度下限 340：单项目也容得下节点半宽75 + 卫星90 + 左侧内边距120
+            width: min(max(340, bounds.width + 24), maxW),
+            height: min(max(150, bounds.height + 24), maxH)
         )
     }
 }

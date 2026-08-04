@@ -1,3 +1,4 @@
+import AppKit
 import SwiftData
 import SwiftUI
 import TwigCore
@@ -38,82 +39,102 @@ struct TreeCanvasView: View {
     }
 
     var body: some View {
-        // 模块内有同名 Main/TimelineView，必须全限定
-        SwiftUI.TimelineView(.periodic(from: .now, by: 1.0 / 60)) { context in
-            let _ = tickIfNeeded(context.date)   // 实现注：按时间戳幂等驱动，body 计算前先推一帧
-            let data = appState.goalsAndEdges()
-            let positions = currentPositions()
-            // 非激活面板收不到 SwiftUI onHover：每帧轮询光标位置驱动悬停 HUD（幂等按状态迁移）
-            let _ = syncHoverWithMouse(goals: data.goals, positions: positions)
-            // 布局包围盒（只算可见节点：已出土 + 手动摆放； buried 节点在画布外不算），
-            // 变化时回写 AppState，TreeWidgetController 据此扩/收窗
-            let bounds = contentBounds(goals: data.goals)
-            let buriedCount = data.goals.filter { !$0.revealed }.count
-            ZStack(alignment: .topLeading) {
-                // 空白命中层（垫底）：点空白关闭详情弹卡 / 内联输入卡
-                Color.white.opacity(0.001)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        appState.leafTask = nil
-                        appState.addingNodeNear = nil
-                    }
-                StemEdgeCanvas(edges: data.edges,
-                               positions: positions,
-                               direction: appState.pullDirection,
-                               soilLine: soilLine(),
-                               focusGoal: appState.hoveredGoal?.persistentModelID,
-                               crossPull: crossPull,
-                               crossVel: crossVel)
-                edgeHitLayer(edges: data.edges, positions: positions)
-                ForEach(data.goals, id: \.persistentModelID) { goal in
-                    if let frame = positions[goal.persistentModelID] {
-                        NodeCardView(goal: goal,
-                                     color: Color(hex: goal.project?.colorHint ?? "#D97757") ?? .orange,
-                                     isBuried: !goal.revealed,
-                                     isFocusing: appState.timerStore.activeTask?.goal?.persistentModelID == goal.persistentModelID)
-                            .position(x: frame.midX, y: frame.midY)
-                            // 出土时"从土里滑入槽位"（revealed 翻转的那一帧才动画，拔树逐帧不插值）
-                            .animation(.spring(duration: 0.45, bounce: 0.2), value: goal.revealed)
-                            .gesture(nodeDrag(goal))
-                            .onHover { inside in nodeHover(goal, inside: inside) }
-                    }
+        // 60fps TimelineView 整帧重算 body 会与手势识别竞争（tap/drag 在两次重排之间被
+        // 作废——"节点拖不动、HUD 点不到"的根因）。body 只在 @Observable 状态变化时重算；
+        // 物理推进与光标轮询缩进一个 0 尺寸 ticker 视图里，逐 tick 写状态而非逐 tick 重建视图
+        let _ = appState.canvasRevision   // 边增删/新节点插入等不可跟踪变化的重算触发器
+        let data = appState.goalsAndEdges()
+        let positions = currentPositions()
+        // 布局包围盒（只算可见节点：已出土 + 手动摆放； buried 节点在画布外不算），
+        // 变化时回写 AppState，TreeWidgetController 据此扩/收窗
+        let bounds = contentBounds(goals: data.goals)
+        let buriedCount = data.goals.filter { !$0.revealed }.count
+        ZStack(alignment: .topLeading) {
+            // 物理/悬停 ticker：60fps 推 PullPhysics + 轮询光标驱动悬停 HUD（只在迁移时写状态）
+            SwiftUI.TimelineView(.periodic(from: .now, by: 1.0 / 60)) { context in
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .onChange(of: context.date) { _, date in tickerFired(date) }
+            }
+            .frame(width: 0, height: 0)
+            // 空白命中层（垫底）：点空白关闭详情弹卡 / 内联输入卡；
+            // 拖空白移动窗口（面板 isMovableByWindowBackground=false，
+            // 否则它会吃掉节点 DragGesture——05c14bd 的教训）
+            Color.white.opacity(0.001)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    appState.leafTask = nil
+                    appState.addingNodeNear = nil
+                    forwardClickThrough()
                 }
-                HoverHud(appState: appState, positions: positions,
-                         onPullStart: startPull, onPullDrag: pullDrag, onPullEnd: endPull,
-                         onHudHover: hudHover, onLinkingChanged: linkingChanged)
-                TaskLeafPopover(appState: appState, positions: positions)
-                // 埋土提示：土线侧一行灰字（仅当还有未出土节点）
-                if buriedCount > 0 {
-                    Text("土里还有 \(buriedCount) 个目标")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .position(buriedHintPos())
-                }
-                // HUD ＋ 的内联输入卡：anchor 节点下方，Enter 创建，Esc/失焦取消
-                if let anchor = appState.addingNodeNear,
-                   let anchorFrame = positions[anchor.persistentModelID] {
-                    addNodeCard(anchor: anchor, frame: anchorFrame)
+                .gesture(
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { _ in dragWindowByBlankCanvas() }
+                )
+            StemEdgeCanvas(edges: data.edges,
+                           positions: positions,
+                           direction: appState.pullDirection,
+                           soilLine: soilLine(),
+                           focusGoal: appState.hoveredGoal?.persistentModelID,
+                           crossPull: crossPull,
+                           crossVel: crossVel)
+            edgeHitLayer(edges: data.edges, positions: positions)
+            ForEach(data.goals, id: \.persistentModelID) { goal in
+                if let frame = positions[goal.persistentModelID] {
+                    NodeCardView(goal: goal,
+                                 color: Color(hex: goal.project?.colorHint ?? "#D97757") ?? .orange,
+                                 isBuried: !goal.revealed,
+                                 isFocusing: appState.timerStore.activeTask?.goal?.persistentModelID == goal.persistentModelID)
+                        .position(x: frame.midX, y: frame.midY)
+                        // 出土时"从土里滑入槽位"（revealed 翻转的那一帧才动画，拔树逐帧不插值）
+                        .animation(.spring(duration: 0.45, bounce: 0.2), value: goal.revealed)
+                        .gesture(nodeDrag(goal))
+                        .onHover { inside in nodeHover(goal, inside: inside) }
                 }
             }
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-            // 画布在窗口坐标系（.global = 窗口内容区，左上角原点）的 frame：
-            // 光标轮询把窗口坐标换算成画布局部坐标用（写引用盒，不触发状态刷新）
-            .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .global)
-            } action: { newFrame in
-                hoverBox.canvasFrameInWindow = newFrame
+            HoverHud(appState: appState, positions: positions,
+                     onPullStart: startPull, onPullDrag: pullDrag, onPullEnd: endPull,
+                     onHudHover: hudHover, onLinkingChanged: linkingChanged)
+            TaskLeafPopover(appState: appState, positions: positions)
+            // 埋土提示：土线侧一行灰字（仅当还有未出土节点）
+            if buriedCount > 0 {
+                Text("土里还有 \(buriedCount) 个目标")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .position(buriedHintPos())
             }
-            .onExitCommand {
-                appState.leafTask = nil
-                appState.addingNodeNear = nil
-            }
-            .onChange(of: appState.addingNodeNear?.persistentModelID) { _, _ in
-                newNodeTitle = ""   // 换锚点/重新打开都从空标题起
-            }
-            .onChange(of: bounds, initial: true) { _, newValue in
-                appState.reportedTreeBounds = newValue
+            // HUD ＋ 的内联输入卡：anchor 节点下方，Enter 创建，Esc/失焦取消
+            if let anchor = appState.addingNodeNear,
+               let anchorFrame = positions[anchor.persistentModelID] {
+                addNodeCard(anchor: anchor, frame: anchorFrame)
             }
         }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        // 画布在窗口坐标系（.global = 窗口内容区，左上角原点）的 frame：
+        // 光标轮询把窗口坐标换算成画布局部坐标用（写引用盒，不触发状态刷新）
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { newFrame in
+            hoverBox.canvasFrameInWindow = newFrame
+        }
+        .onExitCommand {
+            appState.leafTask = nil
+            appState.addingNodeNear = nil
+        }
+        .onChange(of: appState.addingNodeNear?.persistentModelID) { _, _ in
+            newNodeTitle = ""   // 换锚点/重新打开都从空标题起
+        }
+        .onChange(of: bounds, initial: true) { _, newValue in
+            appState.reportedTreeBounds = newValue
+        }
+    }
+
+    /// ticker 每 tick（60fps）：推进拔树物理 + 轮询光标驱动悬停 HUD。
+    /// 只在状态迁移时写 @Observable（无拔树/无悬停迁移时零写入，不触发重渲染）
+    private func tickerFired(_ date: Date) {
+        tickIfNeeded(date)
+        let data = appState.goalsAndEdges()
+        syncHoverWithMouse(goals: data.goals, positions: currentPositions())
     }
 
     // MARK: - 内联新增节点卡（HUD ＋ 按钮的消费者）
@@ -182,7 +203,7 @@ struct TreeCanvasView: View {
         // 布局从画布左上绝对定位（含顶部安全区与左侧内边距），包围盒必须从画布原点
         // 量到最右/最下节点边缘——若只报"节点跨度"，窗口会比布局矮/窄，
         // 深层节点被窗框裁掉、根节点看起来也没贴在设计位置上
-        return CGSize(width: maxX + 24, height: maxY + 24)
+        return CGSize(width: maxX + 12, height: maxY + 12)
     }
 
     // MARK: - 每帧物理（幂等按时间戳驱动，60fps periodic 本身已是帧节奏）
@@ -309,6 +330,9 @@ struct TreeCanvasView: View {
     private func nodeDrag(_ goal: Goal) -> some Gesture {
         DragGesture()
             .onChanged { value in
+                #if DEBUG
+                FileHandle.standardError.write("[twig-debug] nodeDrag \(goal.title) t=\(value.translation)\n".data(using: .utf8)!)
+                #endif
                 if movingGoal?.persistentModelID != goal.persistentModelID {
                     movingGoal = goal
                     // 实现注：首次记录拖拽起点，之后 custom = origin + translation（不累加）
@@ -341,6 +365,38 @@ struct TreeCanvasView: View {
 
     private func basePos(of goal: Goal) -> CGPoint {
         appState.placements(in: layoutRect)[goal.persistentModelID] ?? .zero
+    }
+
+    // MARK: - 空白处窗口拖动 / 点击穿透
+
+    /// 拖空白移动窗口：performDrag 接管事件流直到松手（与 CollapsedBarView 横条拖动同款）
+    private func dragWindowByBlankCanvas() {
+        #if DEBUG
+        FileHandle.standardError.write("[twig-debug] blankDrag performDrag\n".data(using: .utf8)!)
+        #endif
+        guard let event = NSApp.currentEvent,
+              let panel = NSApp.windows.first(where: { $0 is NSPanel }) else { return }
+        panel.performDrag(with: event)
+    }
+
+    /// 空白点击穿透：本面板先吞下了真实点击，补发一次合成点击给下面的 app（Finder/编辑器），
+    /// 让"画布空白处点击"表现得像悬浮窗不存在。补发期间面板临时忽略鼠标，避免打到自己
+    private func forwardClickThrough() {
+        guard let panel = NSApp.windows.first(where: { $0 is NSPanel }) else { return }
+        let loc = NSEvent.mouseLocation
+        panel.ignoresMouseEvents = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                                  mouseCursorPosition: loc, mouseButton: .left),
+               let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                                mouseCursorPosition: loc, mouseButton: .left) {
+                down.post(tap: .cghidEventTap)
+                up.post(tap: .cghidEventTap)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                panel.ignoresMouseEvents = false
+            }
+        }
     }
 
     // MARK: - 悬停防抖（180ms：节点 → HUD 之间留路；拔树/拉线期间悬停上下文锁定）

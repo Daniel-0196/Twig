@@ -112,6 +112,12 @@ final class AppState {
     /// 由 TreeWidgetController.start 注入（闭包避免 AppState 反向持有窗口）
     var widgetMouseProvider: (() -> CGPoint?)?
 
+    /// 画布数据修订号：TreeCanvasView 在 body 里读它。
+    /// SwiftData 模型属性变更会被 @Observable 跟踪，但"插入/删除 Goal、增删 Edge"
+    /// 这类 fetch 结果集变化不会触发视图失效——这些方法里手动递增驱动画布重渲染
+    private(set) var canvasRevision = 0
+    private func bumpCanvas() { canvasRevision &+= 1 }
+
     func goalsAndEdges() -> (goals: [Goal], edges: [Edge]) {
         let ctx = container.mainContext
         let all = (try? ctx.fetch(FetchDescriptor<Goal>())) ?? []
@@ -171,12 +177,14 @@ final class AppState {
         if !dup {
             container.mainContext.insert(Edge(type: .sequence, from: from, to: to))
             try? container.mainContext.save()
+            bumpCanvas()
         }
     }
 
     func toggleEdgeType(_ edge: Edge) {
         edge.type = edge.type == .sequence ? .reference : .sequence
         try? container.mainContext.save()
+        bumpCanvas()
     }
 
     func deleteGoalTree(_ goal: Goal) {
@@ -189,6 +197,7 @@ final class AppState {
         if addingNodeNear?.persistentModelID == goal.persistentModelID { addingNodeNear = nil }
         container.mainContext.delete(goal)   // 边级联删除
         try? container.mainContext.save()
+        bumpCanvas()
         exportSnapshot()
     }
 
@@ -196,6 +205,7 @@ final class AppState {
     func addGoalNode(near: Goal, title: String) -> Goal? {
         guard let project = near.project else { return nil }
         let goal = taskStore.addGoal(to: project, title: title, horizon: near.horizon, targetDate: nil)
+        bumpCanvas()
         exportSnapshot()
         return goal
     }

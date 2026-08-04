@@ -11,11 +11,11 @@ struct WidgetView: View {
         // 模块内有同名 Main/TimelineView，必须全限定
         SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
             ZStack(alignment: .topLeading) {
-                VStack(alignment: .leading, spacing: 0) {
-                    CollapsedBarView(appState: appState)   // 头部横条
-                    if appState.widgetMode == .tree {
-                        TreeCanvasView(appState: appState, size: controller.contentSize)
-                    }
+                // 原型：树画板态是纯节点画布（无头部横条）；横条只在折叠态出现
+                if appState.widgetMode == .tree {
+                    TreeCanvasView(appState: appState, size: controller.contentSize)
+                } else {
+                    CollapsedBarView(appState: appState)
                 }
             }
             .preferredColorScheme(.light)

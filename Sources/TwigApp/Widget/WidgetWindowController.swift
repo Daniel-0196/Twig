@@ -1,6 +1,30 @@
 import AppKit
 import SwiftUI
 
+/// 非激活 NSPanel 的第一次点击默认被 acceptsFirstMouse=false 吞掉：
+/// 表现就是"悬停 HUD 按钮点不到 / 节点第一下拖不动"。强制首击直达内容
+private final class WidgetHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    #if DEBUG
+    override func mouseDown(with event: NSEvent) {
+        FileHandle.standardError.write("[twig-debug] hostingView.mouseDown win.key=\(window?.isKeyWindow ?? false)\n".data(using: .utf8)!)
+        super.mouseDown(with: event)
+    }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let v = super.hitTest(point)
+        FileHandle.standardError.write("[twig-debug] hitTest \(point) -> \(v.map { String(describing: type(of: $0)) } ?? "nil")\n".data(using: .utf8)!)
+        return v
+    }
+    #endif
+}
+
+/// borderless NSPanel 默认 canBecomeKey=false：HUD ＋ 的内联输入框拿不到焦点，
+/// 失焦即关的逻辑让它闪现即关（看起来就是"点 ＋ 没反应"）。
+/// nonactivatingPanel 配合 canBecomeKey=true：收键盘焦点但不激活 app（标准做法）
+private final class WidgetPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 @Observable
 final class WidgetWindowController {
@@ -11,7 +35,7 @@ final class WidgetWindowController {
     var contentSize: CGSize = CGSize(width: 760, height: 440)
 
     func show<Content: View>(rootView: Content) {
-        let panel = NSPanel(
+        let panel = WidgetPanel(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 544),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false
@@ -22,24 +46,31 @@ final class WidgetWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isMovableByWindowBackground = false   // 背景拖动会吃掉节点拖拽：窗口只能拖横条
+        panel.isMovableByWindowBackground = false   // true 会吃掉节点 DragGesture（05c14bd 的教训）；
+        // 窗口拖动由 TreeCanvasView 空白命中层的 DragGesture + performDrag 实现（空白拖窗口、节点拖节点）
         // 悬浮窗永远浅色（深色桌面下材料/控件不能变深灰）
         panel.appearance = NSAppearance(named: .aqua)
         // 非激活面板也要收 mouse-moved 事件（SwiftUI onHover/tracking area 的前提；
         // 悬停 HUD 另由 TreeCanvasView 轮询 mouseLocationInContent 驱动，双保险）
         panel.acceptsMouseMovedEvents = true
         panel.setFrameAutosaveName("TwigWidget")
-        panel.contentView = NSHostingView(rootView: rootView)
+        panel.contentView = WidgetHostingView(rootView: rootView)
+        #if DEBUG
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { e in
+            FileHandle.standardError.write("[twig-debug] \(e.type.rawValue) win=\(e.window.map { String(describing: type(of: $0)) } ?? "nil") loc=\(e.locationInWindow)\n".data(using: .utf8)!)
+            return e
+        }
+        #endif
         ensureVisible(panel)
         panel.orderFront(nil)
         self.panel = panel
     }
 
-    /// 树画板态：窗口 = 横条(64) + 内容区 + 边距，宽度至少 560（横条宽度）
+    /// 树画板态：窗口 = 内容区 + 小边距（头部横条已移除，不再预留 64pt）
     func resizeToFit(content: CGSize, animated: Bool = true) {
         contentSize = content
-        let w = max(560, content.width + 40)
-        let h = 64 + (content.height > 0 ? content.height + 40 : 0)
+        let w = max(360, content.width + 16)
+        let h = max(160, content.height + 16)
         resize(toWidth: w, height: h, animated: animated)
     }
 
