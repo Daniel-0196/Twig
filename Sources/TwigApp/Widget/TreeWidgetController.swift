@@ -36,7 +36,14 @@ final class TreeWidgetController {
             }
             window.resize(toWidth: 560, height: height, animated: animated)
         case .tree:
-            window.resizeToFit(content: fittedContentSize(), animated: animated)
+            // 树画板态浮层滑出也要扩窗：浮层在窗口外收不到 hover-exit，会一直卡着不关
+            var content = fittedContentSize()
+            if appState.peekListVisible {
+                let rows = min(PeekListView.maxRows,
+                               appState.taskStore.tasksForToday(on: Date()).count)
+                content.height += PeekListView.height(forRowCount: rows) + 12
+            }
+            window.resizeToFit(content: content, animated: animated)
         }
     }
 

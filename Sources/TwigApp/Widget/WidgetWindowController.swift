@@ -23,6 +23,8 @@ final class WidgetWindowController {
         panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
+        // 悬浮窗永远浅色（深色桌面下材料/控件不能变深灰）
+        panel.appearance = NSAppearance(named: .aqua)
         panel.setFrameAutosaveName("TwigWidget")
         panel.contentView = NSHostingView(rootView: rootView)
         ensureVisible(panel)
@@ -44,7 +46,19 @@ final class WidgetWindowController {
         var frame = panel.frame
         frame.origin.y += frame.height - height
         frame.size = NSSize(width: width, height: height)
+        // 扩窗后若右/下边出屏则整体挪回屏内（顶边尽量不动）
+        if let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) ?? NSScreen.main {
+            let vis = screen.visibleFrame
+            if frame.maxX > vis.maxX { frame.origin.x = max(vis.minX, vis.maxX - frame.width) }
+            if frame.minY < vis.minY { frame.origin.y = vis.minY }
+        }
         panel.setFrame(frame, display: true, animate: animated)
+    }
+
+    /// 光标是否还在悬浮窗内（外扩 padding 容差）：今日浮层防卡死兜底用
+    func cursorInside(padding: CGFloat = 12) -> Bool {
+        guard let panel else { return false }
+        return panel.frame.insetBy(dx: -padding, dy: -padding).contains(NSEvent.mouseLocation)
     }
 
     /// 被拖出屏幕则回到主屏右上角

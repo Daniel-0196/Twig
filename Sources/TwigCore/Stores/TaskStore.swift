@@ -58,6 +58,19 @@ public final class TaskStore {
         (try? ctx.fetch(FetchDescriptor<Task>()))?.filter { !$0.isDone } ?? []
     }
 
+    /// 当前任务（横条 idle 态显示）：项目创建序 → 目标 sortOrder → 任务 sortOrder 的第一个未完成任务
+    public func firstIncompleteTask() -> Task? {
+        for p in allProjects() {
+            for g in p.goals.sorted(by: { $0.sortOrder < $1.sortOrder }) {
+                if let t = g.tasks.filter({ !$0.isDone })
+                    .sorted(by: { $0.sortOrder < $1.sortOrder }).first {
+                    return t
+                }
+            }
+        }
+        return nil
+    }
+
     public func allProjects() -> [Project] {
         (try? ctx.fetch(FetchDescriptor<Project>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
     }

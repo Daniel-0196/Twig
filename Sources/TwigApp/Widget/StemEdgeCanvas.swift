@@ -19,8 +19,9 @@ struct StemEdgeCanvas: View {
                       let a = positions[from.persistentModelID],
                       let b = positions[to.persistentModelID] else { continue }
                 let isSeq = edge.type == .sequence
+                // 引用线：深灰细虚线（原型 rgba(31,30,29,0.28)）；白底上白色不可见
                 let color = isSeq ? Color(hex: from.project?.colorHint ?? "#D97757") ?? .orange
-                                  : Color.white.opacity(0.35)
+                                  : Color(red: 0.12, green: 0.11, blue: 0.10).opacity(0.28)
                 let hot = focusGoal == nil
                     || from.persistentModelID == focusGoal
                     || to.persistentModelID == focusGoal

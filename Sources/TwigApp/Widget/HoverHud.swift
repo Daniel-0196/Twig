@@ -146,7 +146,8 @@ struct PortDot: View {
                         p.addLine(to: CGPoint(x: dragPoint.x - portPos.x + 5,
                                               y: dragPoint.y - portPos.y + 5))
                     }
-                    .stroke(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                    .stroke(Color(red: 0.65, green: 0.64, blue: 0.62).opacity(0.8),
+                            style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
                 }
             }
             .position(portPos)

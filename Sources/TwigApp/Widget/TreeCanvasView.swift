@@ -24,6 +24,14 @@ struct TreeCanvasView: View {
     @FocusState private var addFieldFocused: Bool
 
     private var rect: CGRect { CGRect(origin: .zero, size: size) }
+    /// 画板顶部安全区：留给悬停横条滑出的今日浮层（overlay 盖在画板上方，不与节点重叠）。
+    /// 向下方向时土线随之从顶边内移，出土节点整体下沉
+    static let peekSafeZone: CGFloat = 70
+    /// 节点布局/土线使用的矩形（顶部扣掉安全区）
+    private var layoutRect: CGRect {
+        CGRect(x: rect.minX, y: rect.minY + Self.peekSafeZone,
+               width: rect.width, height: max(0, rect.height - Self.peekSafeZone))
+    }
     private var isVertical: Bool {
         appState.pullDirection == .up || appState.pullDirection == .down
     }
@@ -149,7 +157,7 @@ struct TreeCanvasView: View {
 
     /// 可见节点的包围盒尺寸（卡片 150×48 全计入；用基础布局位，不含拔树瞬态偏移）
     private func contentBounds(goals: [Goal]) -> CGSize {
-        let base = appState.placements(in: rect)
+        let base = appState.placements(in: layoutRect)
         var minX = CGFloat.greatestFiniteMagnitude
         var minY = CGFloat.greatestFiniteMagnitude
         var maxX = -CGFloat.greatestFiniteMagnitude
@@ -180,7 +188,7 @@ struct TreeCanvasView: View {
             appState.treeOffset = session.offset
             // 出土判定：组件内、seq 父已出土、未出土节点；buriedDepth 传纯埋深（slack 归 checkReveal 内部）
             let data = appState.goalsAndEdges()
-            let base = appState.placements(in: rect)
+            let base = appState.placements(in: layoutRect)
             let soil = soilLine()
             for g in data.goals where !g.revealed && appState.pullComponent.contains(g.persistentModelID) {
                 if let parent = TreeTopology.parent(of: g, edges: data.edges), !parent.revealed { continue }
@@ -212,7 +220,7 @@ struct TreeCanvasView: View {
 
     private func currentPositions() -> [PersistentIdentifier: CGRect] {
         // placements 已覆盖手动位置（customX/Y 非空的节点 TreeLayout 原样写入）
-        let base = appState.placements(in: rect)
+        let base = appState.placements(in: layoutRect)
         var frames: [PersistentIdentifier: CGRect] = [:]
         let offset = appState.treeOffset
         for (id, pt) in base {
@@ -230,7 +238,7 @@ struct TreeCanvasView: View {
     }
 
     private func soilLine() -> CGFloat {
-        TreeGeom.geom(for: appState.pullDirection, rect: rect).soil
+        TreeGeom.geom(for: appState.pullDirection, rect: layoutRect).soil
     }
 
     /// 交叉轴拔力（茎线张力弯曲用）
@@ -320,7 +328,7 @@ struct TreeCanvasView: View {
     }
 
     private func basePos(of goal: Goal) -> CGPoint {
-        appState.placements(in: rect)[goal.persistentModelID] ?? .zero
+        appState.placements(in: layoutRect)[goal.persistentModelID] ?? .zero
     }
 
     // MARK: - 悬停防抖（180ms：节点 → HUD 之间留路；拔树/拉线期间悬停上下文锁定）

@@ -2,11 +2,12 @@ import SwiftUI
 import TwigCore
 
 /// 紧凑横条：当前任务 + 计时 + 折叠钮；折叠态在末梢画向外延展的虚线（朝向跟随出土方向）。
-/// 每个有未完成目标的项目一条虚线，末端一个项目色空心小圆
+/// 每个有未完成目标的项目一条虚线，末端一个项目色空心小圆。
+/// 今日浮层（PeekListView）由 WidgetView 在树根层 overlay 渲染，本视图只上报悬停进出
 struct CollapsedBarView: View {
     let appState: AppState
-    /// 悬停显隐协调票号：每次进出 +1，延迟收回时只认最新票（跨过横条→浮层间隙不闪收）
-    @State private var hoverTicket = 0
+    /// 悬停进出回调（与浮层共享 WidgetView 的票号协调，跨过横条→浮层间隙不闪收）
+    var onPeekHover: (Bool) -> Void = { _ in }
 
     /// 折叠态总高：纵向出土方向时虚线在横条上/下方，需要更高
     static func barHeight(for direction: PullDirection) -> CGFloat {
@@ -74,6 +75,20 @@ struct CollapsedBarView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+            } else if case .idle = appState.engineState {
+                // idle：对当前任务（第一个未完成任务）起番茄
+                Button {
+                    if let task = appState.taskStore.firstIncompleteTask() {
+                        appState.timerStore.start(task: task, mode: .pomodoro)
+                    }
+                } label: {
+                    Text("▶ 开始")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: "#D97757") ?? .orange)
+                }
+                .buttonStyle(.plain)
+                .disabled(appState.taskStore.firstIncompleteTask() == nil)
+                .help("对当前任务起番茄")
             } else {
                 Text(timerText)
                     .font(.system(size: 13, weight: .semibold))
@@ -101,41 +116,21 @@ struct CollapsedBarView: View {
             RoundedRectangle(cornerRadius: 22)
                 .stroke(.white.opacity(0.6), lineWidth: 1)
         )
-        .onHover { peekHover($0) }
-        .overlay(alignment: .top) {
-            // 今日浮层：贴横条下缘滑出，不占布局（折叠态窗口由 controller 扩高容纳）
-            GeometryReader { geo in
-                if appState.peekListVisible {
-                    PeekListView(appState: appState, onHoverChange: peekHover)
-                        .offset(y: geo.size.height + 6)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.18), value: appState.peekListVisible)
-    }
-
-    /// 悬停进出（横条与浮层共用）：进入即开，离开延迟 180ms 收回——
-    /// 期间若进入另一方（票号失效）则保持展开
-    private func peekHover(_ inside: Bool) {
-        hoverTicket &+= 1
-        let ticket = hoverTicket
-        if inside {
-            appState.peekListVisible = true
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                if ticket == hoverTicket { appState.peekListVisible = false }
-            }
-        }
+        .onHover { onPeekHover($0) }
     }
 
     private var activeColorHex: String {
-        appState.timerStore.activeTask?.goal?.project?.colorHint ?? "#D97757"
+        if let hex = appState.timerStore.activeTask?.goal?.project?.colorHint { return hex }
+        // idle：色点跟随"当前任务"所属项目（原型行为）
+        if case .idle = appState.engineState {
+            return appState.taskStore.firstIncompleteTask()?.goal?.project?.colorHint ?? "#D97757"
+        }
+        return "#D97757"
     }
 
     private var timerText: String {
         switch appState.engineState {
-        case .idle: return "开始"
+        case .idle: return "▶ 开始"
         case .focusing(let startedAt, let plannedEnd, _):
             let seconds: Int
             if let plannedEnd {

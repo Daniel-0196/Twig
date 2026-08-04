@@ -50,6 +50,7 @@ final class AppState {
 
     func start() {
         migrateRevealFlags()
+        seedDefaultEdges()
         recoverUnclosedEntries()
         watchInbox()
         handleInboxWrite()
@@ -72,7 +73,13 @@ final class AppState {
     var currentFocusTitle: String {
         if let task = timerStore.activeTask { return task.title }
         switch engineState {
-        case .idle: return "点我开始专注"
+        case .idle:
+            // 原型行为：idle 时显示当前任务（第一个未完成任务 · 目标名）
+            if let task = taskStore.firstIncompleteTask() {
+                if let goal = task.goal { return "\(task.title) · \(goal.title)" }
+                return task.title
+            }
+            return "全部完成 🎉"
         case .focusing: return "专注中"
         case .onBreak(_, _, let isLong): return isLong ? "长休息" : "短休息"
         }
@@ -120,7 +127,8 @@ final class AppState {
         let ctx = container.mainContext
         let goals = (try? ctx.fetch(FetchDescriptor<Goal>())) ?? []
         let edges = (try? ctx.fetch(FetchDescriptor<Edge>())) ?? []
-        return (goals, edges)
+        // 画板只放目标节点；"收集箱"是收件箱的默认落点，不是阶段目标，不上树
+        return (goals.filter { $0.title != "收集箱" }, edges)
     }
 
     func placements(in rect: CGRect) -> [PersistentIdentifier: CGPoint] {
@@ -202,6 +210,33 @@ final class AppState {
         var touched = false
         for g in all where g.horizon == .short && !g.revealed {
             g.revealed = true
+            touched = true
+        }
+        if touched { try? ctx.save() }
+    }
+
+    /// 一次性迁移：老库没有 Edge 数据（收件箱导入只建任务），树画板一条茎线都画不出来。
+    /// 为"目标 ≥2 且完全无边"的项目按 sortOrder 补默认顺序链（同原型默认数据）；
+    /// 用户手动删过边的项目（曾经有线）不重补，只做一轮
+    private func seedDefaultEdges() {
+        let flag = "twig.seededDefaultEdges.v1"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        let ctx = container.mainContext
+        let edges = (try? ctx.fetch(FetchDescriptor<Edge>())) ?? []
+        var touched = false
+        for p in taskStore.allProjects() {
+            let goals = p.goals.sorted { $0.sortOrder < $1.sortOrder }
+            guard goals.count > 1 else { continue }
+            let ids = Set(goals.map(\.persistentModelID))
+            let hasEdge = edges.contains {
+                ($0.from.map { ids.contains($0.persistentModelID) } ?? false)
+                    || ($0.to.map { ids.contains($0.persistentModelID) } ?? false)
+            }
+            guard !hasEdge else { continue }
+            for i in 0..<(goals.count - 1) {
+                ctx.insert(Edge(type: .sequence, from: goals[i], to: goals[i + 1]))
+            }
             touched = true
         }
         if touched { try? ctx.save() }
