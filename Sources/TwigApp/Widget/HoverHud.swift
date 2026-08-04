@@ -50,7 +50,8 @@ struct HoverHud: View {
                         onHudHover: onHudHover)
             }
         }
-        .onHover { onHudHover?($0) }
+        // 不挂 .onHover：它会毒化画布命中测试（见 TreeCanvasView 节点卡的二分注释）；
+        // HUD 悬停由 TreeCanvasView 光标轮询的区域判定驱动（syncHoverWithMouse → hudHover）
     }
 
     private func hudButton(_ label: String, color: Color, help: String,

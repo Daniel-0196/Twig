@@ -89,7 +89,9 @@ struct TreeCanvasView: View {
                         // 出土时"从土里滑入槽位"（revealed 翻转的那一帧才动画，拔树逐帧不插值）
                         .animation(.spring(duration: 0.45, bounce: 0.2), value: goal.revealed)
                         .gesture(nodeDrag(goal))
-                        .onHover { inside in nodeHover(goal, inside: inside) }
+                    // 注意：不要挂 .onHover——二分定位证实它会毒化整个画布的命中测试
+                    // （挂上后整窗点击全灭），且非激活面板下本就不触发；
+                    // 悬停由 ticker 的光标轮询驱动（syncHoverWithMouse → nodeHover）
                 }
             }
             HoverHud(appState: appState, positions: positions,
@@ -134,7 +136,8 @@ struct TreeCanvasView: View {
     private func tickerFired(_ date: Date) {
         tickIfNeeded(date)
         let data = appState.goalsAndEdges()
-        syncHoverWithMouse(goals: data.goals, positions: currentPositions())
+        let positions = currentPositions()
+        syncHoverWithMouse(goals: data.goals, positions: positions)
     }
 
     // MARK: - 内联新增节点卡（HUD ＋ 按钮的消费者）
@@ -330,9 +333,6 @@ struct TreeCanvasView: View {
     private func nodeDrag(_ goal: Goal) -> some Gesture {
         DragGesture()
             .onChanged { value in
-                #if DEBUG
-                FileHandle.standardError.write("[twig-debug] nodeDrag \(goal.title) t=\(value.translation)\n".data(using: .utf8)!)
-                #endif
                 if movingGoal?.persistentModelID != goal.persistentModelID {
                     movingGoal = goal
                     // 实现注：首次记录拖拽起点，之后 custom = origin + translation（不累加）
@@ -371,9 +371,6 @@ struct TreeCanvasView: View {
 
     /// 拖空白移动窗口：performDrag 接管事件流直到松手（与 CollapsedBarView 横条拖动同款）
     private func dragWindowByBlankCanvas() {
-        #if DEBUG
-        FileHandle.standardError.write("[twig-debug] blankDrag performDrag\n".data(using: .utf8)!)
-        #endif
         guard let event = NSApp.currentEvent,
               let panel = NSApp.windows.first(where: { $0 is NSPanel }) else { return }
         panel.performDrag(with: event)

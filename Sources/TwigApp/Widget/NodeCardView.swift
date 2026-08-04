@@ -47,7 +47,9 @@ struct NodeCardView: View {
             .shadow(color: .black.opacity(0.04), radius: 1, y: 1)
     }
 
-    /// 右侧小卫星：期限 tag → 迷你进度条 → done/total → 红点任务数
+    /// 右侧小卫星：期限 tag → 迷你进度条 → done/total → 红点任务数。
+    /// 不做 allowsHitTesting(false)：卫星区占卡片右半，点不穿的话从右半边拖节点
+    /// 会落空到下层空白层（变成拖窗口）——卫星无可点元素，命中归节点即可
     private var satellite: some View {
         HStack(spacing: 4) {
             Text(tagText)
@@ -74,7 +76,6 @@ struct NodeCardView: View {
                 .frame(minWidth: 15, minHeight: 15)
                 .background(color, in: Circle())
         }
-        .allowsHitTesting(false)
     }
 
     private var tagText: String {

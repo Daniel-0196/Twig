@@ -49,6 +49,7 @@ final class AppState {
     func start() {
         migrateRevealFlags()
         seedDefaultEdges()
+        repairChainsThroughHiddenGoals()
         recoverUnclosedEntries()
         exportSnapshot()
         snapshotTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -249,6 +250,60 @@ final class AppState {
             touched = true
         }
         if touched { try? ctx.save() }
+    }
+
+    /// v2 迁移：v1 建链时把"收集箱"也串进了顺序链。画板过滤收集箱后链条断裂——
+    /// 断点两侧的目标都成入度 0 的根，全部横排成一行（看起来就是"方向不对"）。
+    /// 修复：绕过隐藏目标重接链（p→收集箱→s 变 p→s），清掉触碰隐藏目标的边，
+    /// 空壳隐藏目标直接删除；再对仍无边的项目按 v1 规则补链（v1 之后才建的项目漏补）
+    private func repairChainsThroughHiddenGoals() {
+        let flag = "twig.repairedHiddenGoalChains.v2"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        let ctx = container.mainContext
+        let hidden: Set<String> = ["收集箱", "未分配"]
+        guard let allEdges = try? ctx.fetch(FetchDescriptor<Edge>()) else { return }
+        var touched = false
+        for p in taskStore.allProjects() {
+            let ids = Set(p.goals.map(\.persistentModelID))
+            let edges = allEdges.filter {
+                ($0.from.map { ids.contains($0.persistentModelID) } ?? false)
+                    || ($0.to.map { ids.contains($0.persistentModelID) } ?? false)
+            }
+            // 1) 绕过隐藏目标重接链（先快照，循环内可能删除收集箱本体）
+            for h in p.goals.filter({ hidden.contains($0.title) }) {
+                let ins = edges.filter { $0.type == .sequence && $0.to?.persistentModelID == h.persistentModelID }
+                let outs = edges.filter { $0.type == .sequence && $0.from?.persistentModelID == h.persistentModelID }
+                if let up = ins.first?.from, let down = outs.first?.to,
+                   up.persistentModelID != down.persistentModelID {
+                    let dup = allEdges.contains {
+                        $0.type == .sequence
+                            && $0.from?.persistentModelID == up.persistentModelID
+                            && $0.to?.persistentModelID == down.persistentModelID
+                    }
+                    if !dup { ctx.insert(Edge(type: .sequence, from: up, to: down)); touched = true }
+                }
+                for e in ins + outs { ctx.delete(e); touched = true }
+                // 空壳隐藏目标删除（有任务的保留，仍按标题过滤不上树）
+                if h.tasks.isEmpty { ctx.delete(h); touched = true }
+            }
+            // 2) 仍无边的可见目标 ≥2：按 sortOrder 补默认链（收集箱已剔除，不会再串进链里）
+            let visible = p.goals
+                .filter { !hidden.contains($0.title) && !$0.isDeleted }
+                .sorted { $0.sortOrder < $1.sortOrder }
+            let visibleEdges = allEdges.filter {
+                $0.type == .sequence
+                    && ($0.from.map { f in visible.contains(where: { $0.persistentModelID == f.persistentModelID }) } ?? false)
+                    && ($0.to.map { t in visible.contains(where: { $0.persistentModelID == t.persistentModelID }) } ?? false)
+            }
+            if visible.count > 1 && visibleEdges.isEmpty {
+                for i in 0..<(visible.count - 1) {
+                    ctx.insert(Edge(type: .sequence, from: visible[i], to: visible[i + 1]))
+                }
+                touched = true
+            }
+        }
+        if touched { try? ctx.save(); bumpCanvas() }
     }
 
     private func recoverUnclosedEntries() {

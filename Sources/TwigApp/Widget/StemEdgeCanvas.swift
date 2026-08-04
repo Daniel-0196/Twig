@@ -13,6 +13,8 @@ struct StemEdgeCanvas: View {
     var crossVel: CGFloat = 0
 
     var body: some View {
+        // Canvas 整体是一个不透明命中体：不关掉会把下方空白层/节点/手势全部挡死
+        // （二分定位：l1 空白层可点，加入本层后整窗点击全灭）。双击连线由 edgeHitLayer 负责
         Canvas { ctx, _ in
             for edge in edges {
                 guard let from = edge.from, let to = edge.to,
@@ -38,6 +40,7 @@ struct StemEdgeCanvas: View {
                 }
             }
         }
+        .allowsHitTesting(false)
     }
 
     // MARK: - 挂点

@@ -5,17 +5,6 @@ import SwiftUI
 /// 表现就是"悬停 HUD 按钮点不到 / 节点第一下拖不动"。强制首击直达内容
 private final class WidgetHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    #if DEBUG
-    override func mouseDown(with event: NSEvent) {
-        FileHandle.standardError.write("[twig-debug] hostingView.mouseDown win.key=\(window?.isKeyWindow ?? false)\n".data(using: .utf8)!)
-        super.mouseDown(with: event)
-    }
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let v = super.hitTest(point)
-        FileHandle.standardError.write("[twig-debug] hitTest \(point) -> \(v.map { String(describing: type(of: $0)) } ?? "nil")\n".data(using: .utf8)!)
-        return v
-    }
-    #endif
 }
 
 /// borderless NSPanel 默认 canBecomeKey=false：HUD ＋ 的内联输入框拿不到焦点，
@@ -54,13 +43,8 @@ final class WidgetWindowController {
         // 悬停 HUD 另由 TreeCanvasView 轮询 mouseLocationInContent 驱动，双保险）
         panel.acceptsMouseMovedEvents = true
         panel.setFrameAutosaveName("TwigWidget")
-        panel.contentView = WidgetHostingView(rootView: rootView)
-        #if DEBUG
-        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { e in
-            FileHandle.standardError.write("[twig-debug] \(e.type.rawValue) win=\(e.window.map { String(describing: type(of: $0)) } ?? "nil") loc=\(e.locationInWindow)\n".data(using: .utf8)!)
-            return e
-        }
-        #endif
+        let hosting = WidgetHostingView(rootView: rootView)
+        panel.contentView = hosting
         ensureVisible(panel)
         panel.orderFront(nil)
         self.panel = panel
