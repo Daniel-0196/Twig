@@ -174,7 +174,8 @@ struct TreeCanvasView: View {
         for g in goals where g.revealed || g.customX != nil {
             guard let p = base[g.persistentModelID] else { continue }
             found = true
-            maxX = max(maxX, p.x + 75)
+            // 右侧要留出小卫星（期限tag+进度条+红点 ≈ 90px）：节点半宽 75 + 卫星 90 + 抖动 22
+            maxX = max(maxX, p.x + 75 + 90)
             maxY = max(maxY, p.y + 24)
         }
         guard found else { return CGSize(width: 720, height: 400) }   // 全埋：给默认画板

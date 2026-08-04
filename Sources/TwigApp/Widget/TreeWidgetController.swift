@@ -46,7 +46,8 @@ final class TreeWidgetController {
         let maxW = max(760, screen.width / 3)
         let maxH = max(440, screen.height * 0.6)
         return CGSize(
-            width: min(max(560, bounds.width + 48), maxW),
+            // 宽度下限 680：两项目横排（minX+120+260 + 节点半宽75 + 卫星90 + 边距）
+            width: min(max(680, bounds.width + 48), maxW),
             height: min(max(360, bounds.height + 48), maxH)
         )
     }
