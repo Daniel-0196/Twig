@@ -1,10 +1,33 @@
 import AppKit
 import SwiftUI
+import TwigCore
+
+#if DEBUG
+/// 真机事件日志（TWIG_EVENTLOG=1 才启用）：真实鼠标事件到达 hosting view /
+/// SwiftUI 手势层时打 stderr。默认零开销——静态读取一次环境变量
+enum TwigEventLog {
+    static let enabled = ProcessInfo.processInfo.environment["TWIG_EVENTLOG"] == "1"
+    static func log(_ s: String) {
+        guard enabled else { return }
+        FileHandle.standardError.write("[twig-event] \(s)\n".data(using: .utf8)!)
+    }
+}
+#endif
 
 /// 非激活 NSPanel 的第一次点击默认被 acceptsFirstMouse=false 吞掉：
 /// 表现就是"悬停 HUD 按钮点不到 / 节点第一下拖不动"。强制首击直达内容
 private final class WidgetHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    #if DEBUG
+    override func mouseDown(with event: NSEvent) {
+        TwigEventLog.log("hostingView.mouseDown loc=\(event.locationInWindow)")
+        super.mouseDown(with: event)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        TwigEventLog.log("hostingView.mouseDragged loc=\(event.locationInWindow)")
+        super.mouseDragged(with: event)
+    }
+    #endif
 }
 
 /// borderless NSPanel 默认 canBecomeKey=false：HUD ＋ 的内联输入框拿不到焦点，
@@ -22,6 +45,27 @@ final class WidgetWindowController {
     /// 内容区尺寸（树画板）：默认 760×440，TreeWidgetController 按节点包围盒调整。
     /// 设为可观察：WidgetView 的 treeSize 读它，扩窗后画布跟着重排
     var contentSize: CGSize = CGSize(width: 760, height: 440)
+
+    /// 画布内代码拿面板（拖窗/点击穿透用）——不依赖 NSApp.windows 遍历
+    /// （MenuBarExtra 也会生成 NSPanel，按 z 序拿第一个可能拿错）
+    var eventPanel: NSPanel? { panel }
+
+    /// 土壤侧贴住屏幕边缘（原型语义：埋土节点"扎进屏幕外"，土线即屏幕边缘）。
+    /// 只动方向主轴那一侧，交叉轴保留用户拖放/autosave 的位置
+    func dockSoilSide(to direction: PullDirection, animated: Bool) {
+        guard let panel,
+              let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(panel.frame) }) ?? NSScreen.main
+        else { return }
+        let vis = screen.visibleFrame
+        var f = panel.frame
+        switch direction {
+        case .down:  f.origin.y = vis.maxY - f.height   // 土在屏顶：窗顶贴可见区顶
+        case .up:    f.origin.y = vis.minY
+        case .left:  f.origin.x = vis.minX
+        case .right: f.origin.x = vis.maxX - f.width
+        }
+        panel.setFrame(f, display: true, animate: animated)
+    }
 
     func show<Content: View>(rootView: Content) {
         let panel = WidgetPanel(

@@ -112,6 +112,9 @@ final class AppState {
     /// 非激活 NSPanel 收不到 SwiftUI onHover，悬停 HUD 由 TreeCanvasView 每帧轮询这里驱动；
     /// 由 TreeWidgetController.start 注入（闭包避免 AppState 反向持有窗口）
     var widgetMouseProvider: (() -> CGPoint?)?
+    /// 悬浮窗面板本体（画布内拖窗/点击穿透用）：直接注入，不遍历 NSApp.windows
+    /// （MenuBarExtra 也会生成 NSPanel，按 z 序拿第一个可能拿到菜单面板）
+    var widgetPanelProvider: (() -> NSPanel?)?
 
     /// 画布数据修订号：TreeCanvasView 在 body 里读它。
     /// SwiftData 模型属性变更会被 @Observable 跟踪，但"插入/删除 Goal、增删 Edge"

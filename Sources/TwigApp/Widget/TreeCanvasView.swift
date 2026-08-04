@@ -63,6 +63,9 @@ struct TreeCanvasView: View {
             Color.white.opacity(0.001)
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    #if DEBUG
+                    TwigEventLog.log("blankTap")
+                    #endif
                     appState.leafTask = nil
                     appState.addingNodeNear = nil
                     forwardClickThrough()
@@ -334,6 +337,9 @@ struct TreeCanvasView: View {
         DragGesture()
             .onChanged { value in
                 if movingGoal?.persistentModelID != goal.persistentModelID {
+                    #if DEBUG
+                    TwigEventLog.log("nodeDrag began \(goal.title)")
+                    #endif
                     movingGoal = goal
                     // 实现注：首次记录拖拽起点，之后 custom = origin + translation（不累加）
                     let base = basePos(of: goal)
@@ -347,6 +353,9 @@ struct TreeCanvasView: View {
                 goal.customY = Double(origin.y + value.translation.height)
             }
             .onEnded { value in
+                #if DEBUG
+                TwigEventLog.log("nodeDrag ended \(goal.title) dist=\(Int(hypot(value.translation.width, value.translation.height)))")
+                #endif
                 let dist = hypot(value.translation.width, value.translation.height)
                 if dist < 8 {
                     // 微拖不钉死自动布局：还原进入拖动前的 custom 状态（可能原本就是 nil）
@@ -372,14 +381,14 @@ struct TreeCanvasView: View {
     /// 拖空白移动窗口：performDrag 接管事件流直到松手（与 CollapsedBarView 横条拖动同款）
     private func dragWindowByBlankCanvas() {
         guard let event = NSApp.currentEvent,
-              let panel = NSApp.windows.first(where: { $0 is NSPanel }) else { return }
+              let panel = appState.widgetPanelProvider?() else { return }
         panel.performDrag(with: event)
     }
 
     /// 空白点击穿透：本面板先吞下了真实点击，补发一次合成点击给下面的 app（Finder/编辑器），
     /// 让"画布空白处点击"表现得像悬浮窗不存在。补发期间面板临时忽略鼠标，避免打到自己
     private func forwardClickThrough() {
-        guard let panel = NSApp.windows.first(where: { $0 is NSPanel }) else { return }
+        guard let panel = appState.widgetPanelProvider?() else { return }
         let loc = NSEvent.mouseLocation
         panel.ignoresMouseEvents = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {

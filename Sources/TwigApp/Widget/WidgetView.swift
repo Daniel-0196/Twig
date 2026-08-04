@@ -24,7 +24,8 @@ struct WidgetView: View {
                 appState.timerStore.tick()
             }
             .onChange(of: appState.widgetMode) { _, _ in controller.applyLayout() }
-            .onChange(of: appState.pullDirection) { _, _ in controller.applyLayout() }
+            // 切方向 = 换土壤方位：重新把土线贴到屏幕对应边缘
+            .onChange(of: appState.pullDirection) { _, _ in controller.applyLayout(dock: true) }
             .onChange(of: appState.reportedTreeBounds) { _, _ in
                 // 节点包围盒变化 → 树画板态按需扩/收窗
                 if appState.widgetMode == .tree { controller.applyLayout() }

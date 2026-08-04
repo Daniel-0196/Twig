@@ -24,6 +24,9 @@ struct HoverHud: View {
                 // 上排功能钮
                 HStack(spacing: 6) {
                     hudButton("＋", color: Color(red: 0.49, green: 0.61, blue: 0.46), help: "新增分支") {
+                        #if DEBUG
+                        TwigEventLog.log("HUD ＋ tapped \(goal.title)")
+                        #endif
                         appState.addingNodeNear = goal   // TreeCanvasView 在该节点旁渲染内联输入卡
                     }
                     hudButton("🗑", color: .secondary, help: "删除") {

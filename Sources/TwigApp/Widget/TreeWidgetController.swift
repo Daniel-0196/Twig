@@ -21,18 +21,23 @@ final class TreeWidgetController {
     func start() {
         // 悬停 HUD 的光标来源：TreeCanvasView 每帧轮询（非激活面板收不到 onHover）
         appState.widgetMouseProvider = { [weak window] in window?.mouseLocationInContent() }
+        // 画布内拖窗/点击穿透直接用本面板，不遍历 NSApp.windows（MenuBarExtra 也是 NSPanel）
+        appState.widgetPanelProvider = { [weak window] in window?.eventPanel }
         window.show(rootView: WidgetView(appState: appState, controller: self))
-        applyLayout(animated: false)
+        applyLayout(animated: false, dock: true)
     }
 
-    /// widgetMode / 树包围盒 / 出土方向变化后重算窗口尺寸
-    func applyLayout(animated: Bool = true) {
+    /// widgetMode / 树包围盒 / 出土方向变化后重算窗口尺寸。
+    /// dock=true 时把土壤侧贴回屏幕边缘（启动与切方向时；原型语义：土线=屏幕边缘，
+    /// 埋土节点"扎进屏幕外"）。用户空白拖窗挪走过位置后，扩缩窗不再强制归位
+    func applyLayout(animated: Bool = true, dock: Bool = false) {
         switch appState.widgetMode {
         case .folded:
             let height = CollapsedBarView.barHeight(for: appState.pullDirection)
             window.resize(toWidth: 560, height: height, animated: animated)
         case .tree:
             window.resizeToFit(content: fittedContentSize(), animated: animated)
+            if dock { window.dockSoilSide(to: appState.pullDirection, animated: animated) }
         }
     }
 
